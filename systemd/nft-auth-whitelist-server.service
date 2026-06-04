@@ -1,0 +1,24 @@
+# Example unit for the auth-server on the foreign (RFC) machine.
+# This is a SAMPLE. Review it and the config before enabling. Do NOT expose
+# Basic Auth over plain HTTP; put this behind HTTPS (Caddy/Nginx).
+[Unit]
+Description=nft-auth-whitelist auth-server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/nft-auth-server --config /etc/nft-auth-whitelist/server.json
+Restart=on-failure
+RestartSec=3
+# Hardening (review for your environment).
+DynamicUser=yes
+StateDirectory=nft-auth-whitelist
+LogsDirectory=nft-auth-whitelist
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

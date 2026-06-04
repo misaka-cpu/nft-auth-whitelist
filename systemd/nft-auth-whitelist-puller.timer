@@ -1,0 +1,13 @@
+# Example timer that runs the puller shortly after boot and then every minute.
+# SAMPLE - review before enabling: systemctl enable --now nft-auth-whitelist-puller.timer
+[Unit]
+Description=Run nft-auth-whitelist puller periodically
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=60s
+AccuracySec=5s
+Unit=nft-auth-whitelist-puller.service
+
+[Install]
+WantedBy=timers.target

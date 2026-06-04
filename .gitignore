@@ -1,0 +1,12 @@
+/dist/
+*.test
+*.out
+*.log
+# Local runtime data / state
+/var/
+pulled-state.json
+allow.txt
+# Editor / OS noise
+.DS_Store
+.idea/
+.vscode/

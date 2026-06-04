@@ -1,0 +1,21 @@
+{
+  "listen": "127.0.0.1:8088",
+  "base_url": "https://auth.example.com",
+  "username": "change-me",
+  "password": "change-me-strong-password",
+  "pull_token": "change-me-pull-token",
+  "hmac_secret": "change-me-hmac-secret",
+  "ttl_seconds": 21600,
+  "max_entries": 200,
+  "allow_ipv4": true,
+  "allow_ipv6": false,
+  "allow_cidr_expand_ipv4": false,
+  "trusted_proxies": [],
+  "real_ip_header": "",
+  "data_dir": "/var/lib/nft-auth-whitelist",
+  "audit_log": "/var/log/nft-auth-whitelist-audit.log",
+  "rate_limit": {
+    "enabled": true,
+    "max_failures_per_minute": 10
+  }
+}

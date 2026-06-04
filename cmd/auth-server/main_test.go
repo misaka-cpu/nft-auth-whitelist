@@ -1,0 +1,207 @@
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/misaka-cpu/nft-auth-whitelist/internal/audit"
+	"github.com/misaka-cpu/nft-auth-whitelist/internal/config"
+	"github.com/misaka-cpu/nft-auth-whitelist/internal/signer"
+	"github.com/misaka-cpu/nft-auth-whitelist/internal/store"
+)
+
+func testServer(t *testing.T, mutate func(*config.ServerConfig)) (*server, *bytes.Buffer) {
+	t.Helper()
+	cfg := &config.ServerConfig{
+		Listen:     "127.0.0.1:0",
+		Username:   "admin",
+		Password:   "secret",
+		PullToken:  "pull-tok",
+		HMACSecret: "hmac-secret",
+		TTLSeconds: 3600,
+		MaxEntries: 100,
+		AllowIPv4:  true,
+		AllowIPv6:  false,
+		RateLimit:  config.RateLimit{Enabled: true, MaxFailuresPerMinute: 100},
+	}
+	if mutate != nil {
+		mutate(cfg)
+	}
+	st, err := store.New(t.TempDir(), cfg.MaxEntries)
+	if err != nil {
+		t.Fatal(err)
+	}
+	buf := &bytes.Buffer{}
+	al := audit.NewWithWriter(buf)
+	return newServer(cfg, st, al), buf
+}
+
+func TestRootBasicAuthRequired(t *testing.T) {
+	srv, _ := testServer(t, nil)
+	rec := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.RemoteAddr = "1.2.3.4:1111"
+	srv.Handler().ServeHTTP(rec, r)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("want 401 without auth, got %d", rec.Code)
+	}
+	if rec.Header().Get("WWW-Authenticate") == "" {
+		t.Fatal("expected WWW-Authenticate header")
+	}
+}
+
+func TestRootBasicAuthSuccessRecordsRemoteAddr(t *testing.T) {
+	srv, _ := testServer(t, nil)
+	rec := httptest.NewRecorder()
+	// Attempt to spoof via query param AND X-Forwarded-For; both must be ignored.
+	r := httptest.NewRequest(http.MethodGet, "/?ip=9.9.9.9", nil)
+	r.RemoteAddr = "1.2.3.4:1111"
+	r.Header.Set("X-Forwarded-For", "8.8.8.8")
+	r.SetBasicAuth("admin", "secret")
+	srv.Handler().ServeHTTP(rec, r)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	snap := srv.store.Snapshot(srv.now())
+	if len(snap) != 1 || snap[0].CIDR != "1.2.3.4/32" {
+		t.Fatalf("must record RemoteAddr /32 only, got %+v", snap)
+	}
+}
+
+func TestRootBasicAuthFailure(t *testing.T) {
+	srv, _ := testServer(t, nil)
+	rec := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.RemoteAddr = "1.2.3.4:1111"
+	r.SetBasicAuth("admin", "wrong")
+	srv.Handler().ServeHTTP(rec, r)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("want 401 on bad password, got %d", rec.Code)
+	}
+	if srv.store.Count() != 0 {
+		t.Fatal("failed auth must not record any entry")
+	}
+}
+
+func TestExpand24DisabledByDefault(t *testing.T) {
+	srv, _ := testServer(t, nil) // AllowCIDRExpandIPv4 defaults false
+	rec := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/?scope=24", nil)
+	r.RemoteAddr = "1.2.3.4:1111"
+	r.SetBasicAuth("admin", "secret")
+	srv.Handler().ServeHTTP(rec, r)
+	snap := srv.store.Snapshot(srv.now())
+	if len(snap) != 1 || snap[0].CIDR != "1.2.3.4/32" {
+		t.Fatalf("scope=24 must be ignored when disabled, got %+v", snap)
+	}
+}
+
+func TestExpand24EnabledIPv4Only(t *testing.T) {
+	srv, _ := testServer(t, func(c *config.ServerConfig) {
+		c.AllowCIDRExpandIPv4 = true
+	})
+	rec := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/?scope=24", nil)
+	r.RemoteAddr = "1.2.3.4:1111"
+	r.SetBasicAuth("admin", "secret")
+	srv.Handler().ServeHTTP(rec, r)
+	snap := srv.store.Snapshot(srv.now())
+	if len(snap) != 1 || snap[0].CIDR != "1.2.3.0/24" {
+		t.Fatalf("scope=24 should widen IPv4, got %+v", snap)
+	}
+	if !strings.Contains(rec.Body.String(), "风险") {
+		t.Fatal("/24 response must contain a risk warning")
+	}
+}
+
+func TestIPv6DisabledByDefault(t *testing.T) {
+	srv, _ := testServer(t, nil) // AllowIPv6 false
+	rec := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.RemoteAddr = "[2001:db8::1]:1111"
+	r.SetBasicAuth("admin", "secret")
+	srv.Handler().ServeHTTP(rec, r)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("ipv6 must be forbidden by default, got %d", rec.Code)
+	}
+	if srv.store.Count() != 0 {
+		t.Fatal("ipv6 disallowed must not record")
+	}
+}
+
+func TestIPv6EnabledRecords128(t *testing.T) {
+	srv, _ := testServer(t, func(c *config.ServerConfig) {
+		c.AllowIPv6 = true
+	})
+	rec := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.RemoteAddr = "[2001:db8::1]:1111"
+	r.SetBasicAuth("admin", "secret")
+	srv.Handler().ServeHTTP(rec, r)
+	snap := srv.store.Snapshot(srv.now())
+	if len(snap) != 1 || snap[0].CIDR != "2001:db8::1/128" {
+		t.Fatalf("ipv6 must record /128, got %+v", snap)
+	}
+}
+
+func TestAllowJSONRequiresBearer(t *testing.T) {
+	srv, _ := testServer(t, nil)
+	rec := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/allow.json", nil)
+	srv.Handler().ServeHTTP(rec, r)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("allow.json must require bearer, got %d", rec.Code)
+	}
+}
+
+func TestAllowJSONSignedAndVerifiable(t *testing.T) {
+	srv, _ := testServer(t, nil)
+	// Seed an entry.
+	r0 := httptest.NewRequest(http.MethodGet, "/", nil)
+	r0.RemoteAddr = "1.2.3.4:1111"
+	r0.SetBasicAuth("admin", "secret")
+	srv.Handler().ServeHTTP(httptest.NewRecorder(), r0)
+
+	rec := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/allow.json", nil)
+	r.Header.Set("Authorization", "Bearer pull-tok")
+	srv.Handler().ServeHTTP(rec, r)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", rec.Code)
+	}
+	var env signer.Envelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatal(err)
+	}
+	if !signer.Verify(&env, []byte("hmac-secret")) {
+		t.Fatal("exported allow.json must verify with the configured secret")
+	}
+}
+
+func TestHealth(t *testing.T) {
+	srv, _ := testServer(t, nil)
+	rec := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/health", nil)
+	srv.Handler().ServeHTTP(rec, r)
+	if rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != "ok" {
+		t.Fatalf("health should return ok, got %d %q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAuditNeverContainsPassword(t *testing.T) {
+	srv, buf := testServer(t, nil)
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.RemoteAddr = "1.2.3.4:1111"
+	r.SetBasicAuth("admin", "super-secret-password")
+	srv.Handler().ServeHTTP(httptest.NewRecorder(), r)
+	if strings.Contains(buf.String(), "super-secret-password") {
+		t.Fatal("audit log must never contain the password")
+	}
+	if strings.Contains(buf.String(), "pull-tok") || strings.Contains(buf.String(), "hmac-secret") {
+		t.Fatal("audit log must never contain token/secret")
+	}
+}

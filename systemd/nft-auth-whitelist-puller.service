@@ -1,0 +1,20 @@
+# Example oneshot unit for the puller on the domestic (po0) machine.
+# Triggered by nft-auth-whitelist-puller.timer. SAMPLE - review before enabling.
+#
+# Default mode is "export": it only writes allow.txt. To actually apply the
+# optional nft guard you must enable it in puller.json AND add --apply below;
+# that is intentionally left out of this sample.
+[Unit]
+Description=nft-auth-whitelist puller (single pull cycle)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/nft-auth-puller --config /etc/nft-auth-whitelist/puller.json --once
+NoNewPrivileges=yes
+ProtectSystem=strict
+StateDirectory=nft-auth-whitelist
+LogsDirectory=nft-auth-whitelist
+ReadWritePaths=/var/lib/nft-auth-whitelist
+PrivateTmp=yes
