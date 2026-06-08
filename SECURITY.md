@@ -4,7 +4,7 @@
 
 ## 威胁模型与边界
 
-- auth-server 通过 **HTTP Basic Auth** 校验用户，**必须部署在 HTTPS 反代之后**（Caddy / Nginx / 自有反代）。
+- auth-server 通过 **HTTP Basic Auth** 校验用户，可叠加 Cloudflare Access 作为外层前门，**必须部署在 HTTPS 反代之后**（Caddy / Nginx / 自有反代）。
   在纯 HTTP 下使用 Basic Auth 会以明文形式传输凭据，**禁止这样做**。
 - auth-server 默认监听 `127.0.0.1:8088`，不直接暴露公网，依赖反代终止 TLS。
 - 只记录 **认证请求的来源 IP**，不接受任何用户自行提交的 IP 参数。
@@ -24,11 +24,15 @@
 
 ## 真实来源 IP
 
-- 默认使用 `RemoteAddr`。
-- 只有当请求来自配置的 `trusted_proxies` 时，才会信任 `real_ip_header`（如 `X-Forwarded-For`，只取第一跳）。
-- **不要直接信任公网伪造的 `X-Forwarded-For`**。
-- 如果套了 Cloudflare / 公共 CDN，服务端看到的可能不是用户真实 IP；建议不要套公共 CDN，
-  或仅在可信反代后启用 `real_ip_header`。
+- 默认使用 `RemoteAddr`，不读取任何客户端 IP header。
+- 只有当请求的 `RemoteAddr` 命中配置的 `trusted_proxy_cidrs` 时，才会按
+  `client_ip_headers` 优先级读取 `CF-Connecting-IP` / `X-Real-IP` / `X-Forwarded-For`。
+- `CF-Connecting-IP` 和 `X-Real-IP` 必须是单个合法 IP；`X-Forwarded-For` 只取第一个合法 IP。
+- **不要直接信任公网伪造的 `CF-Connecting-IP` 或 `X-Forwarded-For`**。
+- Cloudflare Access 只负责“人登录”；本项目仍只记录认证请求的来源 IP，不接受用户提交任意 IP。
+- 如果 auth-server 只监听 `127.0.0.1` 并由本机 Caddy/Nginx 反代，可以把
+  `127.0.0.1/32` 和 `::1/128` 配进 `trusted_proxy_cidrs`。
+- 不要把公网来源全部加入 `trusted_proxy_cidrs`，也不要在生产中配置 `0.0.0.0/0` 或 `::/0`。
 
 ## 签名
 

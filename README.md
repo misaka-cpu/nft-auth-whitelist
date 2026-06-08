@@ -14,7 +14,7 @@
 
 | 二进制 | 运行位置 | 职责 |
 | --- | --- | --- |
-| `nft-auth-server` | 国外 RFC 机器 | HTTPS 认证页面（Basic Auth），记录来源 IP，带 TTL，导出签名后的 `allow.json` |
+| `nft-auth-server` | 国外 RFC 机器 | HTTPS 认证页面（Basic Auth / Cloudflare Access 前门），记录来源 IP，带 TTL，导出签名后的 `allow.json` |
 | `nft-auth-puller` | 国内 po0 机器 | 定时主动拉取 `allow.json`，校验 HMAC 签名与 TTL，导出本地 `allow.txt` |
 
 设计原则：**安全、简单、可审计**。第一版不追求功能多。
@@ -23,7 +23,7 @@
 
 ```
 用户
-  -> HTTPS Basic Auth (Caddy/Nginx 反代)
+  -> HTTPS Basic Auth 或 Cloudflare Access (Caddy/Nginx 反代)
   -> RFC nft-auth-server         记录来源 IP + TTL
   -> allow.json (HMAC-SHA256 签名)
   -> po0 nft-auth-puller 主动拉取  校验签名 / TTL / 家族
@@ -92,7 +92,7 @@ nft-auth-puller --config /etc/nft-auth-whitelist/puller.json --once
 # 只看会写什么、会生成什么 nft 脚本（不落盘、不执行）
 nft-auth-puller --config /etc/nft-auth-whitelist/puller.json --dry-run
 
-# 显式开启 nft guard 真实执行（需先在配置里开启，见第 13 节）
+# 显式开启 nft guard 真实执行（需先在配置里开启，见第 14 节）
 nft-auth-puller --config /etc/nft-auth-whitelist/puller.json --once --apply
 ```
 
@@ -119,7 +119,9 @@ nft-auth-puller --config /etc/nft-auth-whitelist/puller.json --once --apply
 | `max_entries` | `200` | 超限时清理最旧 / 已过期记录 |
 | `allow_ipv4` / `allow_ipv6` | `true` / `false` | 地址族开关；IPv6 默认关闭 |
 | `allow_cidr_expand_ipv4` | `false` | 是否允许用户选择 `/24`（默认关闭） |
-| `trusted_proxies` / `real_ip_header` | `[]` / `""` | 仅在请求来自可信反代时才信任该 header |
+| `trusted_proxy_cidrs` | `[]` | 可信反代 CIDR；只有 `RemoteAddr` 命中时才读取客户端 IP header |
+| `client_ip_headers` | `CF-Connecting-IP`, `X-Real-IP`, `X-Forwarded-For` | 可信反代命中后的 header 优先级 |
+| `trusted_proxies` / `real_ip_header` | `[]` / `""` | 旧配置兼容字段；新部署优先使用上面两个字段 |
 | `data_dir` | `/var/lib/nft-auth-whitelist` | JSON 存储目录（无数据库） |
 | `audit_log` | — | 审计日志路径，空则写 stderr |
 | `rate_limit` | 开启/10 | 每分钟每来源登录失败上限 |
@@ -145,13 +147,15 @@ nft-auth-puller --config /etc/nft-auth-whitelist/puller.json --once --apply
 - `password` / `pull_token` / `hmac_secret` **绝不写入日志**。
 - 登录失败只记录来源 IP，不记录密码。
 - **不允许用户提交任意 IP**，只记录认证请求的来源 IP。
+- 默认只使用 `RemoteAddr`；只有 `trusted_proxy_cidrs` 命中的反代才可信。
+- 不要无条件信任 `CF-Connecting-IP` / `X-Forwarded-For`，也不要把 `0.0.0.0/0` 或 `::/0` 加进可信代理。
 - 默认只加 `/32`；`/24` 必须显式开启并有风险提示。
 - **不会自动把 IP 永久加白**（全部带 TTL）。
 - 详见 [SECURITY.md](./SECURITY.md)。
 
 ## 9. HTTPS / 反代建议
 
-**不要在纯 HTTP 下使用 Basic Auth。** 推荐用 Caddy 或 Nginx 终止 TLS：
+**不要在纯 HTTP 下使用 Basic Auth。** 推荐让 auth-server 只监听 `127.0.0.1`，由 Caddy 或 Nginx 终止 TLS：
 
 Caddy 示例：
 
@@ -166,15 +170,89 @@ Nginx 示例（片段）：
 ```nginx
 location / {
     proxy_pass http://127.0.0.1:8088;
-    proxy_set_header X-Forwarded-For $remote_addr;   # 仅在可信反代后启用 real_ip_header 时使用
 }
 ```
 
-如果启用 `real_ip_header`，必须同时把反代地址填入 `trusted_proxies`，否则服务端会忽略该 header
-（防止公网伪造 `X-Forwarded-For`）。
-不建议套 Cloudflare/公共 CDN，否则记录到的可能是 CDN 节点 IP 而非用户真实 IP。
+默认不读取任何客户端 IP header，只使用 `RemoteAddr`。如果需要在 Cloudflare Access / 可信反代后读取真实客户端 IP，见下一节。
 
-## 10. TTL 和 /32 / /24 说明
+## 10. Cloudflare Access front door / trusted proxy mode
+
+适用场景：
+
+- 用 Cloudflare Access 作为外层登录前门，叠加在 auth-server 的 Basic Auth 前面。
+- 用户通过 GitHub / Google / OIDC / Email 登录 Access 后访问认证页。
+- auth-server 从可信反代转发的 `CF-Connecting-IP` 记录真实出口 IP。
+
+推荐链路：
+
+```text
+用户浏览器
+  -> Cloudflare Access
+  -> Caddy/Nginx
+  -> 127.0.0.1:nft-auth-server
+  -> allow.json
+  -> po0 nft-auth-puller --once --mode export
+  -> allow.txt
+```
+
+auth-server 配置示例：
+
+```json
+{
+  "listen": "127.0.0.1:8088",
+  "trusted_proxy_cidrs": [
+    "127.0.0.1/32",
+    "::1/128"
+  ],
+  "client_ip_headers": [
+    "CF-Connecting-IP",
+    "X-Real-IP",
+    "X-Forwarded-For"
+  ]
+}
+```
+
+JSON 配置文件不能写注释；上面只展示相关字段，实际配置仍需包含 `username` / `password` / `pull_token` / `hmac_secret` 等必填项。
+
+Caddy 示例：
+
+```caddy
+auth.example.com {
+    reverse_proxy 127.0.0.1:YOUR_AUTH_SERVER_PORT {
+        header_up CF-Connecting-IP {http.request.header.CF-Connecting-IP}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+}
+```
+
+Caddy 的默认转发行是否保留某个 header 取决于你的 Caddy 版本和站点配置；这里保留显式 `header_up`，方便审计和迁移。
+
+Nginx 示例：
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:YOUR_AUTH_SERVER_PORT;
+    proxy_set_header CF-Connecting-IP $http_cf_connecting_ip;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
+
+安全提醒：
+
+- auth-server 推荐只监听 `127.0.0.1`。
+- 防火墙不要让公网直连 auth-server。
+- 只有 `trusted_proxy_cidrs` 命中的代理才可信。
+- 不要无条件信任 `CF-Connecting-IP`。
+- 不要把公网来源全部加入 `trusted_proxy_cidrs`。
+- 不要把 `0.0.0.0/0` 或 `::/0` 加进 `trusted_proxy_cidrs`；除非只是临时测试，生产不推荐。
+- Cloudflare Access 负责外层“人登录”，auth-server 当前仍保留 Basic Auth；nft-auth-whitelist 负责“记录当前出口 IP + 签名白名单”。
+- 当前阶段 po0 仍只运行 `nft-auth-puller --once --mode export`，不启用 `--apply`。
+
+## 11. TTL 和 /32 / /24 说明
 
 - 默认 TTL 21600 秒（6 小时），到期自动删除。
 - 同一 IP 再次认证成功会**刷新** `expires_at`（续期），并增加 `hit_count`。
@@ -183,7 +261,7 @@ location / {
   且页面会显示 **风险提示**（`/24` 会放行整段 256 个地址）。
 - IPv6 第一版默认关闭；若开启只记录 `/128`，**不会自动扩 `/64`**。
 
-## 11. allow.json 签名说明
+## 12. allow.json 签名说明
 
 `allow.json` 是一个签名 envelope：
 
@@ -211,13 +289,13 @@ location / {
 - canonical JSON 由固定结构体字段顺序 + 按 CIDR 排序的 entries 生成，**稳定可复现**。
 - puller 必须验证签名；签名失败、被篡改、密钥不一致都会被拒绝（已有单元测试覆盖）。
 
-## 12. export 模式（默认）
+## 13. export 模式（默认）
 
 - `mode=export` 时只写：`allow.txt`、`pulled-state.json`、审计日志。
 - **不执行任何 nft 命令。**
 - 这是第一版推荐使用方式：先观察导出的 IP 是否符合预期，再考虑后续集成。
 
-## 13. 可选 nft guard 模式（默认关闭）
+## 14. 可选 nft guard 模式（默认关闭）
 
 这是一个**独立保护层**，不能宣称已和 nftables-nat-rust-enhanced 完全集成。
 
@@ -239,7 +317,7 @@ guard 行为：
 
 如果你不确定，请保持 `--dry-run` 观察生成的脚本，确认无误后再考虑 `--apply`。
 
-## 14. systemd 示例
+## 15. systemd 示例
 
 `systemd/` 下提供 **示例** 单元文件，请先检查再启用：
 
@@ -257,15 +335,15 @@ sudo systemctl enable --now nft-auth-whitelist-puller.timer          # po0
 
 > 安装脚本不会自动 `systemctl restart`，也不会自动启用任何单元。
 
-## 15. 常见问题
+## 16. 常见问题
 
 - **puller 拉取失败会清空白名单吗？** 不会。失败时保留上一次成功的 `allow.txt`。
 - **会自动改防火墙吗？** 默认不会。只有显式 `--apply` 且配置开启 guard 时才会执行 nft。
 - **能让用户提交某个 IP 吗？** 不能。只记录认证请求的来源 IP。
-- **套了 CDN 怎么办？** 记录到的可能是 CDN IP；建议不要套公共 CDN，或正确配置 `trusted_proxies`。
+- **套了 Cloudflare Access / CDN 怎么办？** auth-server 只应信任你明确配置的反代 CIDR，见第 10 节；不要把公网来源全部加入 `trusted_proxy_cidrs`。
 - **会永久加白吗？** 不会。所有记录都有 TTL，默认 6 小时。
 
-## 16. TODO
+## 17. TODO
 
 - [ ] 与 nftables-nat-rust-enhanced 的 URL source whitelist 正式集成（待主项目支持）。
 - [ ] 更细的 per-IP 速率限制策略。

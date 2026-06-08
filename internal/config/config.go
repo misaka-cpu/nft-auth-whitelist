@@ -27,8 +27,10 @@ type ServerConfig struct {
 	AllowIPv4           bool      `json:"allow_ipv4"`
 	AllowIPv6           bool      `json:"allow_ipv6"`
 	AllowCIDRExpandIPv4 bool      `json:"allow_cidr_expand_ipv4"`
-	TrustedProxies      []string  `json:"trusted_proxies"`
-	RealIPHeader        string    `json:"real_ip_header"`
+	TrustedProxyCIDRs   []string  `json:"trusted_proxy_cidrs"`
+	ClientIPHeaders     []string  `json:"client_ip_headers"`
+	TrustedProxies      []string  `json:"trusted_proxies"` // legacy: use trusted_proxy_cidrs
+	RealIPHeader        string    `json:"real_ip_header"`  // legacy: use client_ip_headers
 	DataDir             string    `json:"data_dir"`
 	AuditLog            string    `json:"audit_log"`
 	RateLimit           RateLimit `json:"rate_limit"`
@@ -100,6 +102,37 @@ func LoadServerConfig(path string) (*ServerConfig, error) {
 		return nil, err
 	}
 	return c, nil
+}
+
+// DefaultClientIPHeaders returns the built-in trusted proxy header priority.
+func DefaultClientIPHeaders() []string {
+	return []string{"CF-Connecting-IP", "X-Real-IP", "X-Forwarded-For"}
+}
+
+// EffectiveTrustedProxyCIDRs returns new trusted proxy CIDRs plus legacy
+// trusted_proxies entries. Header trust remains disabled when the result is
+// empty.
+func (c *ServerConfig) EffectiveTrustedProxyCIDRs() []string {
+	out := append([]string(nil), c.TrustedProxyCIDRs...)
+	out = append(out, c.TrustedProxies...)
+	return out
+}
+
+// EffectiveClientIPHeaders returns the configured header priority. The new
+// client_ip_headers field wins; real_ip_header preserves the previous
+// single-header behavior; trusted_proxy_cidrs without an explicit header list
+// uses the built-in Cloudflare/reverse-proxy defaults.
+func (c *ServerConfig) EffectiveClientIPHeaders() []string {
+	if len(c.ClientIPHeaders) > 0 {
+		return append([]string(nil), c.ClientIPHeaders...)
+	}
+	if strings.TrimSpace(c.RealIPHeader) != "" {
+		return []string{c.RealIPHeader}
+	}
+	if len(c.TrustedProxyCIDRs) > 0 {
+		return DefaultClientIPHeaders()
+	}
+	return nil
 }
 
 // Validate checks required secret fields are present.

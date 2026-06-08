@@ -10,6 +10,12 @@
   "allow_ipv4": true,
   "allow_ipv6": false,
   "allow_cidr_expand_ipv4": false,
+  "trusted_proxy_cidrs": [],
+  "client_ip_headers": [
+    "CF-Connecting-IP",
+    "X-Real-IP",
+    "X-Forwarded-For"
+  ],
   "trusted_proxies": [],
   "real_ip_header": "",
   "data_dir": "/var/lib/nft-auth-whitelist",

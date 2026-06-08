@@ -1,5 +1,6 @@
 // Package auth provides constant-time credential checks (Basic Auth + bearer
-// token) and trusted-proxy aware client IP extraction.
+// token). It also keeps a small compatibility wrapper for the older real-IP
+// extractor API; new code should use internal/clientip directly.
 package auth
 
 import (
@@ -8,6 +9,8 @@ import (
 	"net"
 	"net/http"
 	"strings"
+
+	"github.com/misaka-cpu/nft-auth-whitelist/internal/clientip"
 )
 
 // ConstantTimeEqual compares two strings in constant time. The inputs are first
@@ -42,82 +45,33 @@ func CheckBearer(r *http.Request, token string) bool {
 	return ConstantTimeEqual(strings.TrimPrefix(h, prefix), token)
 }
 
-// RealIPExtractor resolves the client source IP. By default it uses
-// RemoteAddr. A real-IP header is honoured ONLY when the immediate peer
-// (RemoteAddr) is one of the configured trusted proxies. This is the guard
-// against forged X-Forwarded-For headers from arbitrary public clients.
+// RealIPExtractor resolves the client source IP using the legacy single-header
+// API. It is retained for compatibility with older internal callers.
 type RealIPExtractor struct {
-	trusted []*net.IPNet
-	header  string
+	inner *clientip.Extractor
 }
 
 // NewRealIPExtractor builds an extractor. trustedProxies may contain bare IPs or
 // CIDRs; an empty header or empty trusted list disables header trust entirely.
 func NewRealIPExtractor(trustedProxies []string, header string) *RealIPExtractor {
+	headers := []string{}
+	if strings.TrimSpace(header) != "" {
+		headers = []string{header}
+	}
 	return &RealIPExtractor{
-		trusted: parseTrusted(trustedProxies),
-		header:  strings.TrimSpace(header),
+		inner: clientip.New(clientip.Config{
+			TrustedProxyCIDRs: trustedProxies,
+			Headers:           headers,
+		}),
 	}
-}
-
-func parseTrusted(list []string) []*net.IPNet {
-	var out []*net.IPNet
-	for _, s := range list {
-		s = strings.TrimSpace(s)
-		if s == "" {
-			continue
-		}
-		if !strings.Contains(s, "/") {
-			if strings.Contains(s, ":") {
-				s += "/128"
-			} else {
-				s += "/32"
-			}
-		}
-		if _, n, err := net.ParseCIDR(s); err == nil {
-			out = append(out, n)
-		}
-	}
-	return out
-}
-
-func (e *RealIPExtractor) peerTrusted(ip net.IP) bool {
-	for _, n := range e.trusted {
-		if n.Contains(ip) {
-			return true
-		}
-	}
-	return false
 }
 
 // ClientIP returns the source IP for r. It only consults the configured real-IP
 // header when the direct peer is a trusted proxy; for X-Forwarded-For it takes
 // the first (leftmost) value. Any failure falls back to the direct peer IP.
 func (e *RealIPExtractor) ClientIP(r *http.Request) net.IP {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = r.RemoteAddr
+	if e == nil || e.inner == nil {
+		return nil
 	}
-	remoteIP := net.ParseIP(strings.TrimSpace(host))
-
-	// Header trust is disabled unless explicitly configured AND the peer is trusted.
-	if e.header == "" || len(e.trusted) == 0 || remoteIP == nil {
-		return remoteIP
-	}
-	if !e.peerTrusted(remoteIP) {
-		return remoteIP
-	}
-
-	hv := r.Header.Get(e.header)
-	if hv == "" {
-		return remoteIP
-	}
-	first := hv
-	if i := strings.IndexByte(hv, ','); i >= 0 {
-		first = hv[:i]
-	}
-	if parsed := net.ParseIP(strings.TrimSpace(first)); parsed != nil {
-		return parsed
-	}
-	return remoteIP
+	return e.inner.Extract(r).ClientIP
 }

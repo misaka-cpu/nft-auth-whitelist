@@ -72,6 +72,37 @@ func TestRootBasicAuthSuccessRecordsRemoteAddr(t *testing.T) {
 	}
 }
 
+func TestRootTrustedProxyRecordsCFConnectingIP(t *testing.T) {
+	srv, buf := testServer(t, func(c *config.ServerConfig) {
+		c.TrustedProxyCIDRs = []string{"127.0.0.1/32"}
+	})
+	rec := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.RemoteAddr = "127.0.0.1:1111"
+	r.Header.Set("CF-Connecting-IP", "1.2.3.4")
+	r.Header.Set("X-Real-IP", "5.6.7.8")
+	r.SetBasicAuth("admin", "secret")
+
+	srv.Handler().ServeHTTP(rec, r)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	snap := srv.store.Snapshot(srv.now())
+	if len(snap) != 1 || snap[0].CIDR != "1.2.3.4/32" {
+		t.Fatalf("must record CF-Connecting-IP /32, got %+v", snap)
+	}
+	auditLog := buf.String()
+	if !strings.Contains(auditLog, `"client_ip":"1.2.3.4"`) {
+		t.Fatalf("audit must include client_ip, got %s", auditLog)
+	}
+	if !strings.Contains(auditLog, `"client_ip_source":"cf-connecting-ip"`) {
+		t.Fatalf("audit must include client_ip_source, got %s", auditLog)
+	}
+	if !strings.Contains(auditLog, `"remote_ip":"127.0.0.1"`) {
+		t.Fatalf("audit must include remote_ip, got %s", auditLog)
+	}
+}
+
 func TestRootBasicAuthFailure(t *testing.T) {
 	srv, _ := testServer(t, nil)
 	rec := httptest.NewRecorder()

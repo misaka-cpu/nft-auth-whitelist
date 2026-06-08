@@ -9,6 +9,7 @@ import (
 
 	"github.com/misaka-cpu/nft-auth-whitelist/internal/audit"
 	"github.com/misaka-cpu/nft-auth-whitelist/internal/auth"
+	"github.com/misaka-cpu/nft-auth-whitelist/internal/clientip"
 	"github.com/misaka-cpu/nft-auth-whitelist/internal/config"
 	"github.com/misaka-cpu/nft-auth-whitelist/internal/ipx"
 	"github.com/misaka-cpu/nft-auth-whitelist/internal/signer"
@@ -23,17 +24,20 @@ type server struct {
 	cfg     *config.ServerConfig
 	store   *store.Store
 	audit   *audit.Logger
-	realIP  *auth.RealIPExtractor
+	client  *clientip.Extractor
 	now     func() time.Time
 	limiter *failureLimiter
 }
 
 func newServer(cfg *config.ServerConfig, st *store.Store, al *audit.Logger) *server {
 	return &server{
-		cfg:     cfg,
-		store:   st,
-		audit:   al,
-		realIP:  auth.NewRealIPExtractor(cfg.TrustedProxies, cfg.RealIPHeader),
+		cfg:   cfg,
+		store: st,
+		audit: al,
+		client: clientip.New(clientip.Config{
+			TrustedProxyCIDRs: cfg.EffectiveTrustedProxyCIDRs(),
+			Headers:           cfg.EffectiveClientIPHeaders(),
+		}),
 		now:     time.Now,
 		limiter: newFailureLimiter(cfg.RateLimit),
 	}
@@ -62,6 +66,13 @@ func clientHost(r *http.Request) string {
 	return host
 }
 
+func ipString(ip net.IP, fallback string) string {
+	if ip == nil {
+		return fallback
+	}
+	return ip.String()
+}
+
 func (s *server) handleRoot(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
@@ -73,17 +84,28 @@ func (s *server) handleRoot(w http.ResponseWriter, r *http.Request) {
 		s.audit.Log(audit.ActionEntryExpire, audit.ResultOK, map[string]interface{}{"cidr": cidr})
 	}
 
-	peer := clientHost(r)
+	resolved := s.client.Extract(r)
+	peer := ipString(resolved.RemoteIP, clientHost(r))
 
 	if !auth.CheckBasicAuth(r, s.cfg.Username, s.cfg.Password) {
 		// Rate-limit repeated failures from the same peer.
 		if s.limiter.blocked(peer, s.now()) {
-			s.audit.Log(audit.ActionRateLimited, audit.ResultWarn, map[string]interface{}{"peer": peer})
+			s.audit.Log(audit.ActionRateLimited, audit.ResultWarn, map[string]interface{}{
+				"peer":      peer,
+				"remote_ip": peer,
+				"path":      r.URL.Path,
+				"status":    http.StatusTooManyRequests,
+			})
 			http.Error(w, "too many failed attempts", http.StatusTooManyRequests)
 			return
 		}
 		// NOTE: never log the submitted password.
-		s.audit.Log(audit.ActionAuthFail, audit.ResultWarn, map[string]interface{}{"peer": peer})
+		s.audit.Log(audit.ActionAuthFail, audit.ResultWarn, map[string]interface{}{
+			"peer":      peer,
+			"remote_ip": peer,
+			"path":      r.URL.Path,
+			"status":    http.StatusUnauthorized,
+		})
 		w.Header().Set("WWW-Authenticate", `Basic realm="nft-auth-whitelist"`)
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -91,8 +113,15 @@ func (s *server) handleRoot(w http.ResponseWriter, r *http.Request) {
 
 	// Authenticated. The recorded IP is ALWAYS the request source IP; any
 	// client-supplied IP value is ignored by design.
-	ip := s.realIP.ClientIP(r)
+	ip := resolved.ClientIP
 	if ip == nil {
+		s.audit.Log(audit.ActionAuthFail, audit.ResultWarn, map[string]interface{}{
+			"peer":      peer,
+			"remote_ip": peer,
+			"path":      r.URL.Path,
+			"status":    http.StatusBadRequest,
+			"reason":    "could not determine source IP",
+		})
 		http.Error(w, "could not determine source IP", http.StatusBadRequest)
 		return
 	}
@@ -107,8 +136,13 @@ func (s *server) handleRoot(w http.ResponseWriter, r *http.Request) {
 	cidr, err := ipx.CIDRForRequest(ip, expand24, s.cfg.AllowCIDRExpandIPv4, s.cfg.AllowIPv4, s.cfg.AllowIPv6)
 	if err != nil {
 		s.audit.Log(audit.ActionAuthFail, audit.ResultWarn, map[string]interface{}{
-			"peer":   peer,
-			"reason": err.Error(),
+			"peer":             peer,
+			"client_ip":        ip.String(),
+			"client_ip_source": resolved.Source,
+			"remote_ip":        peer,
+			"path":             r.URL.Path,
+			"status":           http.StatusForbidden,
+			"reason":           err.Error(),
 		})
 		http.Error(w, "your address family is not allowed by this server", http.StatusForbidden)
 		return
@@ -121,7 +155,14 @@ func (s *server) handleRoot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.audit.Log(audit.ActionAuthSuccess, audit.ResultOK, map[string]interface{}{"ip": ip.String()})
+	s.audit.Log(audit.ActionAuthSuccess, audit.ResultOK, map[string]interface{}{
+		"ip":               ip.String(),
+		"client_ip":        ip.String(),
+		"client_ip_source": resolved.Source,
+		"remote_ip":        peer,
+		"path":             r.URL.Path,
+		"status":           http.StatusOK,
+	})
 	action := audit.ActionEntryRefresh
 	if res.IsNew {
 		action = audit.ActionEntryAdd
