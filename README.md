@@ -343,7 +343,62 @@ sudo systemctl enable --now nft-auth-whitelist-puller.timer          # po0
 - **套了 Cloudflare Access / CDN 怎么办？** auth-server 只应信任你明确配置的反代 CIDR，见第 10 节；不要把公网来源全部加入 `trusted_proxy_cidrs`。
 - **会永久加白吗？** 不会。所有记录都有 TTL，默认 6 小时。
 
-## 17. TODO
+## 17. Puller file source 模式 / SSH push 工作流
+
+适用场景：
+
+- 国内 po0 转发机被商家**双向封禁** 80 / 443 / 8080 / 8443 / 8000 / 1080（TCP/UDP），不适合主动 HTTPS pull。
+- signed `allow.json` 由国外 RFC 认证机生成后，通过 **SSH/scp 推送**到 po0 本地 inbox。
+- puller 只在本机**读取文件、校验签名、导出 `allow.txt`**，不发起任何网络请求。
+
+配置：把 `source` 设为 `file` 并填 `input_allow_json`（示例见 `configs/puller-file.example.json`）。
+
+| source | 取值来源 | server_url / pull_token | require_https | HMAC / TTL / max_entries / 家族 / CIDR 校验 | 导出 allow.txt / state.json / 审计 |
+| --- | --- | --- | --- | --- | --- |
+| `http`（默认，缺省即此） | 主动 GET `server_url` 拉取 | 必填，使用 | 参与校验 | 是 | 是 |
+| `file` | 读取本地 `input_allow_json` | 可为空，不使用 | **不参与校验** | 是（与 http 完全一致） | 是 |
+
+示例流程：
+
+1. RFC 日本认证机生成 signed allow.json（仅本机回环，token 走 header）：
+
+```bash
+curl -fsS \
+  -H "Authorization: Bearer $PULL_TOKEN" \
+  http://127.0.0.1:8088/allow.json \
+  -o /tmp/nft-auth-allow.json
+```
+
+2. RFC 通过 SSH/scp 推送到模拟 po0：
+
+```bash
+scp -i /root/.ssh/nft_auth_push_test \
+  /tmp/nft-auth-allow.json \
+  nftauth@TEST_VPS:/var/lib/nft-auth-whitelist/inbox/allow.json
+```
+
+3. 模拟 po0 本地运行（只读文件、校验、导出）：
+
+```bash
+nft-auth-puller -config /etc/nft-auth-whitelist/puller-file.json -once
+```
+
+4. 查看结果：
+
+```bash
+cat /var/lib/nft-auth-whitelist/allow.txt
+cat /var/lib/nft-auth-whitelist/pulled-state.json
+```
+
+安全说明：
+
+- file source 模式**仍然校验 HMAC 签名**，签名失败、被篡改、密钥不一致一律拒绝。
+- 文件不存在 / 读取失败 / JSON 非法 / 签名失败 / 校验失败时，**不清空旧 `allow.txt`**，保留上一次成功结果；`allow.txt` / `pulled-state.json` 仍为原子写（临时文件 + rename），不会出现空文件覆盖。
+- 本模式**不启用 `nft apply`**，默认仍是 `export`。
+- SSH forced command 属于下一阶段 **v0.3.0**，本轮不实现；当前 `authorized_keys` 仍是普通测试模式，**接真实 po0 前必须改为 forced command**（只允许 scp 到 inbox）。
+- 管理入口 **SSH 2222 永远不要纳入自动拦截**，避免锁死自己。
+
+## 18. TODO
 
 - [ ] 与 nftables-nat-rust-enhanced 的 URL source whitelist 正式集成（待主项目支持）。
 - [ ] 更细的 per-IP 速率限制策略。

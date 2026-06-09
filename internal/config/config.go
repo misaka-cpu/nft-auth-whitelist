@@ -46,6 +46,12 @@ type NFTConfig struct {
 
 // PullerConfig is the puller configuration.
 type PullerConfig struct {
+	// Source selects where the signed allow.json comes from: "http" (default,
+	// active pull from server_url) or "file" (read a locally delivered file from
+	// input_allow_json, e.g. one pushed in over SSH/scp). An empty value is
+	// treated as "http" for backward compatibility with older configs.
+	Source          string    `json:"source"`
+	InputAllowJSON  string    `json:"input_allow_json"`
 	ServerURL       string    `json:"server_url"`
 	PullToken       string    `json:"pull_token"`
 	HMACSecret      string    `json:"hmac_secret"`
@@ -162,6 +168,7 @@ func (c *ServerConfig) Validate() error {
 // LoadPullerConfig reads and validates the puller config, applying defaults.
 func LoadPullerConfig(path string) (*PullerConfig, error) {
 	c := &PullerConfig{
+		Source:          "http", // default; empty "source" in JSON keeps this
 		IntervalSeconds: 60,
 		MaxEntries:      200,
 		AllowIPv4:       true,
@@ -171,6 +178,9 @@ func LoadPullerConfig(path string) (*PullerConfig, error) {
 	c.NFT.Table = "nft_auth_whitelist"
 	if err := readJSONFile(path, c); err != nil {
 		return nil, err
+	}
+	if c.Source == "" {
+		c.Source = "http"
 	}
 	if c.IntervalSeconds <= 0 {
 		c.IntervalSeconds = 60
@@ -190,14 +200,26 @@ func LoadPullerConfig(path string) (*PullerConfig, error) {
 	return c, nil
 }
 
-// Validate checks required fields for the puller.
+// Validate checks required fields for the puller. Required fields depend on the
+// source: "http" needs server_url + pull_token, "file" needs input_allow_json.
+// hmac_secret and output_allow_txt are always required so the file-source path
+// still verifies signatures and writes the same outputs as the http path.
 func (c *PullerConfig) Validate() error {
 	missing := []string{}
-	if c.ServerURL == "" {
-		missing = append(missing, "server_url")
-	}
-	if c.PullToken == "" {
-		missing = append(missing, "pull_token")
+	switch c.Source {
+	case "", "http":
+		if c.ServerURL == "" {
+			missing = append(missing, "server_url")
+		}
+		if c.PullToken == "" {
+			missing = append(missing, "pull_token")
+		}
+	case "file":
+		if c.InputAllowJSON == "" {
+			missing = append(missing, "input_allow_json")
+		}
+	default:
+		return fmt.Errorf("source must be \"http\" or \"file\", got %q", c.Source)
 	}
 	if c.HMACSecret == "" {
 		missing = append(missing, "hmac_secret")

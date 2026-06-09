@@ -51,9 +51,37 @@ type pulledState struct {
 	Entries   []signer.Entry `json:"entries"`
 }
 
-// fetchEnvelope retrieves and decodes the signed envelope. It never logs the
-// token (it travels in the Authorization header, not the URL).
+// fetchEnvelope acquires the signed envelope from the configured source. All
+// later steps (verify / TTL / family / output) are shared regardless of source.
 func (p *puller) fetchEnvelope() (*signer.Envelope, error) {
+	if p.cfg.Source == "file" {
+		return p.readEnvelopeFile()
+	}
+	return p.fetchEnvelopeHTTP()
+}
+
+// readEnvelopeFile reads and decodes a signed envelope delivered to a local
+// file (e.g. pushed in over SSH/scp). It makes no network request and ignores
+// server_url / pull_token / require_https. A missing or malformed file is an
+// error; the caller keeps the previous allow.txt intact on any error.
+func (p *puller) readEnvelopeFile() (*signer.Envelope, error) {
+	if p.cfg.InputAllowJSON == "" {
+		return nil, fmt.Errorf("source=file requires input_allow_json")
+	}
+	b, err := os.ReadFile(p.cfg.InputAllowJSON)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", p.cfg.InputAllowJSON, err)
+	}
+	var env signer.Envelope
+	if err := json.Unmarshal(b, &env); err != nil {
+		return nil, fmt.Errorf("decode envelope: %w", err)
+	}
+	return &env, nil
+}
+
+// fetchEnvelopeHTTP retrieves and decodes the signed envelope over HTTP(S). It
+// never logs the token (it travels in the Authorization header, not the URL).
+func (p *puller) fetchEnvelopeHTTP() (*signer.Envelope, error) {
 	req, err := http.NewRequest(http.MethodGet, p.cfg.ServerURL, nil)
 	if err != nil {
 		return nil, err
@@ -86,18 +114,19 @@ func (p *puller) fetchEnvelope() (*signer.Envelope, error) {
 func (p *puller) runOnce(opts runOptions) error {
 	now := p.now()
 
-	// 1. Enforce HTTPS before doing anything.
-	if p.cfg.RequireHTTPS && !strings.HasPrefix(strings.ToLower(p.cfg.ServerURL), "https://") {
+	// 1. Enforce HTTPS before doing anything. Not applicable to the file source,
+	// which makes no network request.
+	if p.cfg.Source != "file" && p.cfg.RequireHTTPS && !strings.HasPrefix(strings.ToLower(p.cfg.ServerURL), "https://") {
 		err := fmt.Errorf("require_https is enabled but server_url is not https://")
-		p.audit.Log(audit.ActionPullFail, audit.ResultError, map[string]interface{}{"reason": err.Error(), "url": redactURL(p.cfg.ServerURL)})
+		p.audit.Log(audit.ActionPullFail, audit.ResultError, map[string]interface{}{"reason": err.Error(), "source": p.sourceLabel()})
 		return err
 	}
 
-	// 2. Fetch.
+	// 2. Fetch (over HTTP(S) or from the local file).
 	env, err := p.fetchEnvelope()
 	if err != nil {
 		// Keep previous output intact.
-		p.audit.Log(audit.ActionPullFail, audit.ResultWarn, map[string]interface{}{"reason": err.Error(), "url": redactURL(p.cfg.ServerURL)})
+		p.audit.Log(audit.ActionPullFail, audit.ResultWarn, map[string]interface{}{"reason": err.Error(), "source": p.sourceLabel()})
 		return err
 	}
 	p.audit.Log(audit.ActionPullSuccess, audit.ResultOK, map[string]interface{}{"entries": len(env.Entries)})
@@ -213,7 +242,7 @@ func (p *puller) writeOutputs(now time.Time, kept []signer.Entry, cidrs []string
 	if p.cfg.OutputStateJSON != "" {
 		state := pulledState{
 			PulledAt:  now.UTC().Format(time.RFC3339),
-			SourceURL: redactURL(p.cfg.ServerURL),
+			SourceURL: p.sourceLabel(),
 			Count:     len(kept),
 			Entries:   kept,
 		}
@@ -239,6 +268,15 @@ func dedup(sorted []string) []string {
 		}
 	}
 	return out
+}
+
+// sourceLabel is a non-secret description of where the envelope came from, safe
+// to put in the audit log and state file.
+func (p *puller) sourceLabel() string {
+	if p.cfg.Source == "file" {
+		return "file:" + p.cfg.InputAllowJSON
+	}
+	return redactURL(p.cfg.ServerURL)
 }
 
 // redactURL strips any query string so a token accidentally placed in the URL

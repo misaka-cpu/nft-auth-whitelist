@@ -1,0 +1,22 @@
+{
+  "source": "file",
+  "input_allow_json": "/var/lib/nft-auth-whitelist/inbox/allow.json",
+  "server_url": "",
+  "pull_token": "",
+  "hmac_secret": "change-me-hmac-secret",
+  "interval_seconds": 60,
+  "output_allow_txt": "/var/lib/nft-auth-whitelist/allow.txt",
+  "output_state_json": "/var/lib/nft-auth-whitelist/pulled-state.json",
+  "max_entries": 200,
+  "allow_ipv4": true,
+  "allow_ipv6": false,
+  "require_https": true,
+  "mode": "export",
+  "nft": {
+    "enabled": false,
+    "table": "nft_auth_whitelist",
+    "protected_tcp_ports": [],
+    "protected_udp_ports": []
+  },
+  "audit_log": "/var/log/nft-auth-whitelist-puller-audit.log"
+}

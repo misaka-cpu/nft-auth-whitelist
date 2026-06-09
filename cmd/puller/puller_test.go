@@ -81,6 +81,122 @@ func testPuller(t *testing.T, serverURL string) (*puller, *config.PullerConfig, 
 	return p, cfg, buf
 }
 
+// testFilePuller builds a puller that reads a signed envelope from inputPath.
+// require_https is intentionally left true to prove it is ignored for files,
+// and server_url / pull_token are empty to prove the file path needs neither.
+func testFilePuller(t *testing.T, inputPath string) (*puller, *config.PullerConfig, *bytes.Buffer) {
+	t.Helper()
+	dir := t.TempDir()
+	cfg := &config.PullerConfig{
+		Source:          "file",
+		InputAllowJSON:  inputPath,
+		HMACSecret:      testSecret,
+		IntervalSeconds: 60,
+		OutputAllowTxt:  filepath.Join(dir, "allow.txt"),
+		OutputStateJSON: filepath.Join(dir, "state.json"),
+		MaxEntries:      10,
+		AllowIPv4:       true,
+		AllowIPv6:       false,
+		RequireHTTPS:    true, // must be ignored for source=file
+		Mode:            "export",
+	}
+	cfg.NFT.Table = "nft_auth_whitelist"
+	buf := &bytes.Buffer{}
+	p := newPuller(cfg, audit.NewWithWriter(buf))
+	return p, cfg, buf
+}
+
+// writeFile writes body to a fresh file in a temp dir and returns its path.
+func writeFile(t *testing.T, name string, body []byte) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), name)
+	if err := os.WriteFile(p, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func TestPullerFileSourceSuccess(t *testing.T) {
+	body := mustSign(t, envWithEntries([]signer.Entry{validEntry("1.2.3.4/32", "1.2.3.4")}), testSecret)
+	in := writeFile(t, "allow.json", body)
+
+	p, cfg, buf := testFilePuller(t, in)
+	if err := p.runOnce(runOptions{}); err != nil {
+		t.Fatalf("runOnce: %v", err)
+	}
+	got, err := os.ReadFile(cfg.OutputAllowTxt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(got)) != "1.2.3.4/32" {
+		t.Fatalf("allow.txt content = %q", string(got))
+	}
+	var st pulledState
+	b, err := os.ReadFile(cfg.OutputStateJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(b, &st); err != nil {
+		t.Fatal(err)
+	}
+	if st.Count != 1 {
+		t.Fatalf("state count = %d", st.Count)
+	}
+	if !strings.HasPrefix(st.SourceURL, "file:") {
+		t.Fatalf("state source = %q, want file: prefix", st.SourceURL)
+	}
+	if !strings.Contains(buf.String(), "pull.success") || !strings.Contains(buf.String(), "signature.ok") {
+		t.Fatal("audit should record pull.success and signature.ok")
+	}
+}
+
+func TestPullerFileSourceMissingFileKeepsOld(t *testing.T) {
+	p, cfg, buf := testFilePuller(t, filepath.Join(t.TempDir(), "does-not-exist.json"))
+	os.WriteFile(cfg.OutputAllowTxt, []byte("9.9.9.9/32\n"), 0o644)
+	if err := p.runOnce(runOptions{}); err == nil {
+		t.Fatal("expected error for missing input file")
+	}
+	got, _ := os.ReadFile(cfg.OutputAllowTxt)
+	if strings.TrimSpace(string(got)) != "9.9.9.9/32" {
+		t.Fatalf("old allow.txt must be preserved, got %q", string(got))
+	}
+	if !strings.Contains(buf.String(), "pull.fail") {
+		t.Fatal("audit should record pull.fail")
+	}
+}
+
+func TestPullerFileSourceBadSignatureKeepsOld(t *testing.T) {
+	body := mustSign(t, envWithEntries([]signer.Entry{validEntry("1.2.3.4/32", "1.2.3.4")}), "wrong-secret")
+	in := writeFile(t, "allow.json", body)
+
+	p, cfg, buf := testFilePuller(t, in)
+	os.WriteFile(cfg.OutputAllowTxt, []byte("9.9.9.9/32\n"), 0o644)
+	if err := p.runOnce(runOptions{}); err == nil {
+		t.Fatal("expected signature failure error")
+	}
+	got, _ := os.ReadFile(cfg.OutputAllowTxt)
+	if strings.TrimSpace(string(got)) != "9.9.9.9/32" {
+		t.Fatalf("old allow.txt must be preserved on signature failure, got %q", string(got))
+	}
+	if !strings.Contains(buf.String(), "signature.fail") {
+		t.Fatal("audit should record signature.fail")
+	}
+}
+
+func TestPullerFileSourceInvalidJSONKeepsOld(t *testing.T) {
+	in := writeFile(t, "allow.json", []byte("{ this is not json"))
+
+	p, cfg, _ := testFilePuller(t, in)
+	os.WriteFile(cfg.OutputAllowTxt, []byte("9.9.9.9/32\n"), 0o644)
+	if err := p.runOnce(runOptions{}); err == nil {
+		t.Fatal("expected JSON parse error")
+	}
+	got, _ := os.ReadFile(cfg.OutputAllowTxt)
+	if strings.TrimSpace(string(got)) != "9.9.9.9/32" {
+		t.Fatalf("old allow.txt must be preserved on invalid json, got %q", string(got))
+	}
+}
+
 func TestPullerSignatureOKWritesAllow(t *testing.T) {
 	body := mustSign(t, envWithEntries([]signer.Entry{validEntry("1.2.3.4/32", "1.2.3.4")}), testSecret)
 	srv := bodyServer(t, body)
