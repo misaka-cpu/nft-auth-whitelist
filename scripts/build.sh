@@ -32,5 +32,8 @@ CGO_ENABLED=0 go build -trimpath -ldflags "$LDFLAGS" -o "$DIST/nft-auth-server" 
 echo "==> build puller"
 CGO_ENABLED=0 go build -trimpath -ldflags "$LDFLAGS" -o "$DIST/nft-auth-puller" ./cmd/puller
 
+echo "==> build receive"
+CGO_ENABLED=0 go build -trimpath -ldflags "$LDFLAGS" -o "$DIST/nft-auth-receive" ./cmd/receive
+
 echo "==> done. binaries in $DIST/"
 ls -l "$DIST"

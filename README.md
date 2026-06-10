@@ -395,10 +395,88 @@ cat /var/lib/nft-auth-whitelist/pulled-state.json
 - file source 模式**仍然校验 HMAC 签名**，签名失败、被篡改、密钥不一致一律拒绝。
 - 文件不存在 / 读取失败 / JSON 非法 / 签名失败 / 校验失败时，**不清空旧 `allow.txt`**，保留上一次成功结果；`allow.txt` / `pulled-state.json` 仍为原子写（临时文件 + rename），不会出现空文件覆盖。
 - 本模式**不启用 `nft apply`**，默认仍是 `export`。
-- SSH forced command 属于下一阶段 **v0.3.0**，本轮不实现；当前 `authorized_keys` 仍是普通测试模式，**接真实 po0 前必须改为 forced command**（只允许 scp 到 inbox）。
+- 把 `allow.json` 直接经 SSH stdin 推给 forced command（无需落地 inbox 再 puller 读）见第 18 节 `nft-auth-receive`。
 - 管理入口 **SSH 2222 永远不要纳入自动拦截**，避免锁死自己。
 
-## 18. TODO
+## 18. SSH forced command receive mode（`nft-auth-receive`）
+
+`nft-auth-receive` 是接收端命令，专为 **SSH forced command** 设计：RFC 日本机把 signed `allow.json` 经 **SSH stdin** 推给接收端，接收端**只读 stdin**、校验、导出，**不监听任何端口、不暴露任何写白名单 API**。
+
+与 §17 file source 的区别：file source 需要先把文件 scp 落到 inbox 再由 puller 读；`nft-auth-receive` 直接从 stdin 接收并在校验通过后**自己**原子写 inbox + 导出 `allow.txt`，更适合锁死成「这把 key 只能干这一件事」。
+
+CLI：
+
+```text
+nft-auth-receive -config /etc/nft-auth-whitelist/receive.json   # 从 stdin 读 signed allow.json
+nft-auth-receive -version                                       # 打印版本
+nft-auth-receive -h                                             # 帮助
+```
+
+行为（全部在本机完成，无网络请求）：
+
+1. 从 stdin 读取，**限制最大输入** `input_max_bytes`（默认 1 MiB），超限即失败。
+2. 解析 JSON；用 `hmac_secret` 校验 **HMAC 签名**。
+3. 校验 envelope 顶层 `expires_at`（TTL）、`max_entries`、地址族、CIDR；过期/非法 entry 过滤。
+4. **仅在全部校验通过后**：原子写入 `inbox_allow_json` → 导出 `output_allow_txt` → 写 `output_state_json` → 写 `audit_log`。
+5. 成功：退出码 0，stdout 输出 `ok entries=N output=...`。
+6. 失败：退出码非 0，stderr 输出清晰错误，**不输出 hmac_secret / token / password / Authorization / Cookie 等敏感信息**。
+
+失败安全边界（与 puller 一致）：输入为空 / 超限 / JSON 非法 / 签名错误 / 顶层过期 / IP·CIDR 不合规时**一律失败、不覆盖旧 `inbox`、不覆盖也不清空旧 `allow.txt`**；写入用临时文件 + rename 原子完成，不会出现空文件覆盖。本命令**没有 `-apply`**，永不执行 nft。
+
+### 测试流程（RFC 日本机 → 国外 VPS 模拟 po0）
+
+1. RFC 日本机生成 `allow.json`（token 走 header，不入 URL）：
+
+```bash
+PULL_TOKEN="$(python3 - <<'PY'
+import json
+print(json.load(open("/etc/nft-auth-whitelist/server.json"))["pull_token"])
+PY
+)"
+
+curl -fsS \
+  -H "Authorization: Bearer $PULL_TOKEN" \
+  http://127.0.0.1:8088/allow.json \
+  -o /tmp/nft-auth-allow.json
+```
+
+2. RFC 日本机通过 **SSH stdin** 推送（无需 scp 落地）：
+
+```bash
+cat /tmp/nft-auth-allow.json | ssh -i /root/.ssh/nft_auth_push_test \
+  nftauth@TEST_VPS
+```
+
+如果有自定义端口：
+
+```bash
+cat /tmp/nft-auth-allow.json | ssh -i /root/.ssh/nft_auth_push_test \
+  -p TEST_VPS_SSH_PORT \
+  nftauth@TEST_VPS
+```
+
+3. 接收端 `~nftauth/.ssh/authorized_keys` 使用 **forced command** 把这把 key 锁死成只能运行 `nft-auth-receive`：
+
+```text
+command="/usr/local/bin/nft-auth-receive -config /etc/nft-auth-whitelist/receive.json",no-pty,no-agent-forwarding,no-X11-forwarding,no-port-forwarding ssh-ed25519 AAAA... nft-auth-rfc-to-test-vps
+```
+
+forced command 安全边界：
+
+- 该 key **只能执行 `nft-auth-receive`**，不能拿 shell、不能端口转发、不能执行任意命令。
+- forced command 是**接真实 po0 前必须启用**的安全边界；当前普通 `authorized_keys` 只允许用于国外 VPS 测试阶段。
+- 接收端不监听任何端口，不暴露写白名单 API；推送方只能投喂 signed `allow.json`，签名不对一律拒绝。
+- 管理入口 **SSH 2222 永远不要纳入自动拦截**，避免锁死管理入口。
+
+4. 在接收端查看结果：
+
+```bash
+cat /var/lib/nft-auth-whitelist/allow.txt
+cat /var/lib/nft-auth-whitelist/pulled-state.json
+tail -n 20 /var/log/nft-auth-whitelist-receive-audit.log
+```
+
+## 19. TODO
 
 - [ ] 与 nftables-nat-rust-enhanced 的 URL source whitelist 正式集成（待主项目支持）。
 - [ ] 更细的 per-IP 速率限制策略。

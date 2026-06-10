@@ -21,6 +21,8 @@ const (
 	ActionEntryExpire     = "entry.expire"
 	ActionPullSuccess     = "pull.success"
 	ActionPullFail        = "pull.fail"
+	ActionReceiveSuccess  = "receive.success"
+	ActionReceiveFail     = "receive.fail"
 	ActionSignatureOK     = "signature.ok"
 	ActionSignatureFail   = "signature.fail"
 	ActionOutputWriteOK   = "output.write.success"

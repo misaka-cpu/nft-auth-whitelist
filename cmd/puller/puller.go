@@ -6,8 +6,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -15,6 +13,7 @@ import (
 	"github.com/misaka-cpu/nft-auth-whitelist/internal/config"
 	"github.com/misaka-cpu/nft-auth-whitelist/internal/ipx"
 	"github.com/misaka-cpu/nft-auth-whitelist/internal/nftguard"
+	"github.com/misaka-cpu/nft-auth-whitelist/internal/pipeline"
 	"github.com/misaka-cpu/nft-auth-whitelist/internal/signer"
 )
 
@@ -43,13 +42,9 @@ func newPuller(cfg *config.PullerConfig, al *audit.Logger) *puller {
 	}
 }
 
-// pulledState is written to output_state_json after a successful pull.
-type pulledState struct {
-	PulledAt  string         `json:"pulled_at"`
-	SourceURL string         `json:"source_url"`
-	Count     int            `json:"count"`
-	Entries   []signer.Entry `json:"entries"`
-}
+// pulledState is the state JSON shape; the implementation lives in pipeline so
+// the puller and receiver stay byte-compatible.
+type pulledState = pipeline.State
 
 // fetchEnvelope acquires the signed envelope from the configured source. All
 // later steps (verify / TTL / family / output) are shared regardless of source.
@@ -131,41 +126,12 @@ func (p *puller) runOnce(opts runOptions) error {
 	}
 	p.audit.Log(audit.ActionPullSuccess, audit.ResultOK, map[string]interface{}{"entries": len(env.Entries)})
 
-	// 3. Verify signature.
-	if !signer.Verify(env, []byte(p.cfg.HMACSecret)) {
-		p.audit.Log(audit.ActionSignatureFail, audit.ResultError, map[string]interface{}{"reason": "hmac mismatch"})
-		return fmt.Errorf("signature verification failed; keeping previous output")
+	// 3-5. Verify signature, enforce max_entries, filter expired/invalid CIDRs.
+	res, err := pipeline.VerifyAndFilter(env, p.pipelineParams(), p.audit, now)
+	if err != nil {
+		return err
 	}
-	p.audit.Log(audit.ActionSignatureOK, audit.ResultOK, nil)
-
-	// 4. max_entries guard: reject (do not truncate) an oversized envelope so a
-	// misbehaving server cannot blow up the local allowlist.
-	if len(env.Entries) > p.cfg.MaxEntries {
-		p.audit.Log(audit.ActionPullFail, audit.ResultWarn, map[string]interface{}{
-			"reason":      "envelope exceeds max_entries",
-			"got":         len(env.Entries),
-			"max_entries": p.cfg.MaxEntries,
-		})
-		return fmt.Errorf("envelope has %d entries > max_entries %d; rejecting", len(env.Entries), p.cfg.MaxEntries)
-	}
-
-	// 5. Filter: drop expired and invalid/unallowed CIDRs.
-	var kept []signer.Entry
-	var cidrs []string
-	for _, e := range env.Entries {
-		if !e.ExpiresAt.After(now) {
-			continue // expired
-		}
-		canon, ok := ipx.CanonicalCIDR(e.CIDR, p.cfg.AllowIPv4, p.cfg.AllowIPv6)
-		if !ok {
-			continue // invalid or disallowed family
-		}
-		e.CIDR = canon
-		kept = append(kept, e)
-		cidrs = append(cidrs, canon)
-	}
-	sort.Strings(cidrs)
-	cidrs = dedup(cidrs)
+	cidrs := res.CIDRs
 
 	// 6. dry-run: print, do not write or apply.
 	if opts.DryRun {
@@ -181,11 +147,9 @@ func (p *puller) runOnce(opts runOptions) error {
 	}
 
 	// 7. Write allow.txt and state json atomically.
-	if err := p.writeOutputs(now, kept, cidrs); err != nil {
-		p.audit.Log(audit.ActionOutputWriteFail, audit.ResultError, map[string]interface{}{"reason": err.Error()})
+	if err := pipeline.WriteOutputs(now, res, p.pipelineParams(), p.audit); err != nil {
 		return err
 	}
-	p.audit.Log(audit.ActionOutputWriteOK, audit.ResultOK, map[string]interface{}{"entries": len(cidrs), "path": p.cfg.OutputAllowTxt})
 
 	// 8. Optional nft apply: gated on (mode=nft OR nft.enabled) AND --apply.
 	if opts.Apply {
@@ -231,43 +195,19 @@ func (p *puller) buildNFTScript(cidrs []string) string {
 	})
 }
 
-func (p *puller) writeOutputs(now time.Time, kept []signer.Entry, cidrs []string) error {
-	txt := strings.Join(cidrs, "\n")
-	if len(cidrs) > 0 {
-		txt += "\n"
+// pipelineParams builds the shared validation/export parameters from the puller
+// config, labelling the audit reject action as a pull failure.
+func (p *puller) pipelineParams() pipeline.Params {
+	return pipeline.Params{
+		HMACSecret:      p.cfg.HMACSecret,
+		MaxEntries:      p.cfg.MaxEntries,
+		AllowIPv4:       p.cfg.AllowIPv4,
+		AllowIPv6:       p.cfg.AllowIPv6,
+		OutputAllowTxt:  p.cfg.OutputAllowTxt,
+		OutputStateJSON: p.cfg.OutputStateJSON,
+		SourceLabel:     p.sourceLabel(),
+		RejectAction:    audit.ActionPullFail,
 	}
-	if err := atomicWrite(p.cfg.OutputAllowTxt, []byte(txt), 0o644); err != nil {
-		return err
-	}
-	if p.cfg.OutputStateJSON != "" {
-		state := pulledState{
-			PulledAt:  now.UTC().Format(time.RFC3339),
-			SourceURL: p.sourceLabel(),
-			Count:     len(kept),
-			Entries:   kept,
-		}
-		b, err := json.MarshalIndent(state, "", "  ")
-		if err != nil {
-			return err
-		}
-		if err := atomicWrite(p.cfg.OutputStateJSON, b, 0o644); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func dedup(sorted []string) []string {
-	if len(sorted) == 0 {
-		return sorted
-	}
-	out := sorted[:1]
-	for _, s := range sorted[1:] {
-		if s != out[len(out)-1] {
-			out = append(out, s)
-		}
-	}
-	return out
 }
 
 // sourceLabel is a non-secret description of where the envelope came from, safe
@@ -286,34 +226,4 @@ func redactURL(raw string) string {
 		return raw[:i] + "?<redacted>"
 	}
 	return raw
-}
-
-// atomicWrite writes via a temp file + rename in the destination directory.
-func atomicWrite(path string, data []byte, perm os.FileMode) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(dir, ".tmp-*")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
-
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Chmod(tmpName, perm); err != nil {
-		return err
-	}
-	return os.Rename(tmpName, path)
 }

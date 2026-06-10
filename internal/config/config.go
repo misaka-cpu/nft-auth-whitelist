@@ -67,6 +67,24 @@ type PullerConfig struct {
 	AuditLog        string    `json:"audit_log"`
 }
 
+// ReceiveConfig is the nft-auth-receive configuration. The receiver reads a
+// signed allow.json from stdin (an SSH forced command), so it needs neither
+// server_url / pull_token nor require_https; only the verification + export
+// fields plus an input size cap.
+type ReceiveConfig struct {
+	InputMaxBytes   int64     `json:"input_max_bytes"`
+	InboxAllowJSON  string    `json:"inbox_allow_json"`
+	HMACSecret      string    `json:"hmac_secret"`
+	OutputAllowTxt  string    `json:"output_allow_txt"`
+	OutputStateJSON string    `json:"output_state_json"`
+	MaxEntries      int       `json:"max_entries"`
+	AllowIPv4       bool      `json:"allow_ipv4"`
+	AllowIPv6       bool      `json:"allow_ipv6"`
+	Mode            string    `json:"mode"`
+	NFT             NFTConfig `json:"nft"`
+	AuditLog        string    `json:"audit_log"`
+}
+
 func readJSONFile(path string, v interface{}) error {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -226,6 +244,63 @@ func (c *PullerConfig) Validate() error {
 	}
 	if c.OutputAllowTxt == "" {
 		missing = append(missing, "output_allow_txt")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("missing required config fields: %s", strings.Join(missing, ", "))
+	}
+	if c.Mode != "export" && c.Mode != "nft" {
+		return fmt.Errorf("mode must be \"export\" or \"nft\", got %q", c.Mode)
+	}
+	if !c.AllowIPv4 && !c.AllowIPv6 {
+		return fmt.Errorf("at least one of allow_ipv4/allow_ipv6 must be true")
+	}
+	return nil
+}
+
+// LoadReceiveConfig reads and validates the receiver config, applying defaults.
+func LoadReceiveConfig(path string) (*ReceiveConfig, error) {
+	c := &ReceiveConfig{
+		InputMaxBytes: 1 << 20, // 1 MiB
+		MaxEntries:    200,
+		AllowIPv4:     true,
+		Mode:          "export",
+	}
+	c.NFT.Table = "nft_auth_whitelist"
+	if err := readJSONFile(path, c); err != nil {
+		return nil, err
+	}
+	if c.InputMaxBytes <= 0 {
+		c.InputMaxBytes = 1 << 20
+	}
+	if c.MaxEntries <= 0 {
+		c.MaxEntries = 200
+	}
+	if c.Mode == "" {
+		c.Mode = "export"
+	}
+	if c.NFT.Table == "" {
+		c.NFT.Table = "nft_auth_whitelist"
+	}
+	if err := c.Validate(); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+// Validate checks required fields for the receiver.
+func (c *ReceiveConfig) Validate() error {
+	missing := []string{}
+	if c.HMACSecret == "" {
+		missing = append(missing, "hmac_secret")
+	}
+	if c.InboxAllowJSON == "" {
+		missing = append(missing, "inbox_allow_json")
+	}
+	if c.OutputAllowTxt == "" {
+		missing = append(missing, "output_allow_txt")
+	}
+	if c.OutputStateJSON == "" {
+		missing = append(missing, "output_state_json")
 	}
 	if len(missing) > 0 {
 		return fmt.Errorf("missing required config fields: %s", strings.Join(missing, ", "))

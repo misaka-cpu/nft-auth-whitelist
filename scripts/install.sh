@@ -32,6 +32,7 @@ install_bin() {
 
 install_bin nft-auth-server
 install_bin nft-auth-puller
+install_bin nft-auth-receive
 
 install_cfg() {
   local src="$1" dst="$2"
@@ -45,6 +46,7 @@ install_cfg() {
 
 install_cfg configs/server.example.json "$CFG_DIR/server.json"
 install_cfg configs/puller.example.json "$CFG_DIR/puller.json"
+install_cfg configs/receive.example.json "$CFG_DIR/receive.json"
 
 echo
 echo "Next steps (do these manually after reviewing the configs):"

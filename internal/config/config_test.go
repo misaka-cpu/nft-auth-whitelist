@@ -81,6 +81,62 @@ func TestLoadPullerConfigInvalidSource(t *testing.T) {
 	}
 }
 
+func fullReceiveJSON() string {
+	return `{
+	  "inbox_allow_json": "/var/lib/nft-auth-whitelist/inbox/allow.json",
+	  "hmac_secret": "secret",
+	  "output_allow_txt": "/var/lib/nft-auth-whitelist/allow.txt",
+	  "output_state_json": "/var/lib/nft-auth-whitelist/pulled-state.json"
+	}`
+}
+
+func TestLoadReceiveConfigDefaults(t *testing.T) {
+	c, err := LoadReceiveConfig(writeTempConfig(t, fullReceiveJSON()))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if c.InputMaxBytes != 1<<20 {
+		t.Fatalf("input_max_bytes = %d, want %d", c.InputMaxBytes, 1<<20)
+	}
+	if c.Mode != "export" {
+		t.Fatalf("mode = %q, want export", c.Mode)
+	}
+	if c.NFT.Enabled {
+		t.Fatal("nft.enabled must default false")
+	}
+}
+
+func TestLoadReceiveConfigMissingFields(t *testing.T) {
+	cases := map[string]string{
+		"hmac_secret": `{
+		  "inbox_allow_json": "/i",
+		  "output_allow_txt": "/a",
+		  "output_state_json": "/s"
+		}`,
+		"inbox_allow_json": `{
+		  "hmac_secret": "s",
+		  "output_allow_txt": "/a",
+		  "output_state_json": "/s"
+		}`,
+		"output_allow_txt": `{
+		  "hmac_secret": "s",
+		  "inbox_allow_json": "/i",
+		  "output_state_json": "/s"
+		}`,
+		"output_state_json": `{
+		  "hmac_secret": "s",
+		  "inbox_allow_json": "/i",
+		  "output_allow_txt": "/a"
+		}`,
+	}
+	for field, body := range cases {
+		_, err := LoadReceiveConfig(writeTempConfig(t, body))
+		if err == nil || !strings.Contains(err.Error(), field) {
+			t.Fatalf("missing %s: expected error naming the field, got %v", field, err)
+		}
+	}
+}
+
 func TestEffectiveClientIPHeadersDefaultForNewTrustedProxyCIDRs(t *testing.T) {
 	c := &ServerConfig{TrustedProxyCIDRs: []string{"127.0.0.1/32"}}
 	got := c.EffectiveClientIPHeaders()
