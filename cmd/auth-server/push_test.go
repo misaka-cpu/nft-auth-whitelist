@@ -33,7 +33,7 @@ func pushServer(t *testing.T, fakeSSH string) (*server, *bytes.Buffer) {
 			Targets: []config.PushTarget{{
 				Name:         "test-vps",
 				User:         "nftauth",
-				Host:         "198.176.54.35",
+				Host:         "203.0.113.10",
 				Port:         2222,
 				IdentityFile: "/root/.ssh/nft_auth_push_test",
 			}},

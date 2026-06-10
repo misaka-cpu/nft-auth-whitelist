@@ -1,11 +1,32 @@
+# Build output (never commit binaries)
 /dist/
 *.test
 *.out
+
+# Logs / backups / scratch
 *.log
+*.bak
+*.new
+*.tmp
+
 # Local runtime data / state
 /var/
+data/
 pulled-state.json
 allow.txt
+
+# Secrets — never commit keys, tokens, or real configs
+*.key
+*key
+id_*
+*.pem
+*.env
+.env
+configs/*.local.json
+server.local.json
+receive.local.json
+puller.local.json
+
 # Editor / OS noise
 .DS_Store
 .idea/

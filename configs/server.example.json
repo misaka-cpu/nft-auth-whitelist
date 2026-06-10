@@ -29,13 +29,13 @@
     "timeout_seconds": 10,
     "targets": [
       {
-        "name": "test-vps",
+        "name": "receiver-1",
         "user": "nftauth",
-        "host": "198.176.54.35",
-        "port": 2222,
-        "identity_file": "/root/.ssh/nft_auth_push_test",
+        "host": "RECEIVE_HOST",
+        "port": 22,
+        "identity_file": "/etc/nft-auth-whitelist/ssh/nft_auth_push",
         "strict_host_key_checking": true,
-        "known_hosts_file": "/root/.ssh/known_hosts"
+        "known_hosts_file": "/etc/nft-auth-whitelist/ssh/known_hosts"
       }
     ]
   }

@@ -13,7 +13,7 @@ func sampleTarget() Target {
 	return Target{
 		Name:                  "test-vps",
 		User:                  "nftauth",
-		Host:                  "198.176.54.35",
+		Host:                  "203.0.113.10",
 		Port:                  2222,
 		IdentityFile:          "/root/.ssh/nft_auth_push_test",
 		StrictHostKeyChecking: true,
@@ -39,7 +39,7 @@ func TestBuildArgsNoShellNoRemoteCommand(t *testing.T) {
 	}
 
 	// Destination must be the last arg and be user@host with NO remote command.
-	if args[len(args)-1] != "nftauth@198.176.54.35" {
+	if args[len(args)-1] != "nftauth@203.0.113.10" {
 		t.Fatalf("last arg must be the destination, got %q", args[len(args)-1])
 	}
 }

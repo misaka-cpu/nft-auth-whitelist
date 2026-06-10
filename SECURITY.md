@@ -39,6 +39,40 @@
 - `allow.json` 使用 `hmac_secret` 对去掉 `signature` 字段后的 canonical JSON 做 HMAC-SHA256。
 - puller 必须验证签名；验证失败会拒绝新结果并保留上一次成功结果。
 
+## 提交到版本库前（绝不要提交的内容）
+
+仓库只应包含 **占位符** 配置（`configs/*.example.json`），真实配置走 `*.local.json` 或
+`/etc/nft-auth-whitelist/*.json`（均已被 `.gitignore` 忽略）。提交前请运行
+`bash scripts/secret-scan.sh`，以下内容**绝不能进入 git**：
+
+- `hmac_secret` 的真实值；
+- `pull_token` 的真实值；
+- Basic Auth `password` 的真实值；
+- 任何 SSH 私钥（`id_ed25519` / `*.pem` / `*.key` 等私钥文件）；
+- `Authorization: Bearer ...`、`Cookie`、`CF_Authorization` 等真实凭据；
+- 真实的 po0 / 接收端 IP、端口、内网拓扑等敏感信息（示例一律用 `RECEIVE_HOST` 占位）。
+
+`scripts/secret-scan.sh` 会对上述模式给出 **error 并以非 0 退出**；example 文件中的占位符
+（如 `change-me-hmac-secret`、`RECEIVE_HOST`）是允许的。
+
+## SSH push 与接收端（receive）
+
+- 接收端的 `authorized_keys` **必须使用 forced command**，把推送方那把 key 锁死成只能运行
+  `nft-auth-receive`：不允许 shell、不允许端口转发、不允许任意命令
+  （`no-pty,no-agent-forwarding,no-X11-forwarding,no-port-forwarding`）。
+- 生产 / 真实 po0 的 push target **必须 `strict_host_key_checking=true`**，并提前准备好
+  `known_hosts`；`false` 只允许在国外 VPS 测试阶段临时使用。
+- push 私钥建议放在 `/etc/nft-auth-whitelist/ssh/` 下（权限 `0600`），**不要依赖 `/root/.ssh`**。
+- auth-server 的 push **失败不会影响认证记录、不会删除 allow entry、不会清空旧 `allow.txt`**；
+  接收端任何校验失败都保留上一次成功的 `allow.txt`。
+- push 的 stdout/stderr 摘要会截断并 redact 已配置 secret，**不会把密钥/令牌写入审计日志或页面**。
+
+## 防火墙与管理入口
+
+- **SSH 管理端口（如 2222）永远不要纳入任何自动拦截规则**，避免把自己锁在门外。
+- 本项目默认 `mode=export`，**不启用 nft guard、不执行 `--apply`**；真正改动防火墙必须同时
+  「配置开启 guard」+「显式 `--apply`」，且本阶段不接真实国内 po0。
+
 ## 报告问题
 
 这是一个示例 / 配套项目，请通过你获取本项目的渠道反馈安全问题，不要在公开 issue 中附带真实密钥或真实 IP。

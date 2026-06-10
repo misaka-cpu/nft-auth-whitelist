@@ -59,8 +59,8 @@
 # 1. 构建（在开发机或 RFC 机器）
 bash scripts/build.sh           # 输出到 dist/
 
-# 2. 安装二进制与示例配置（不会启动服务，不会覆盖已有配置）
-sudo bash scripts/install.sh
+# 2. 安装二进制与示例配置（不会启动/覆盖已有配置；详见第 19 节角色化安装）
+sudo ./install.sh --role auth-server
 
 # 3. 编辑配置，设置强随机的 username/password/pull_token/hmac_secret
 sudo vi /etc/nft-auth-whitelist/server.json
@@ -83,7 +83,7 @@ sudo vi /etc/nft-auth-whitelist/server.json
 ## 6. 快速开始：po0 机器 puller
 
 ```bash
-sudo bash scripts/install.sh
+sudo ./install.sh --role puller
 sudo vi /etc/nft-auth-whitelist/puller.json   # 填入与 RFC 一致的 pull_token / hmac_secret
 
 # 单次拉取（systemd timer 用这个）
@@ -372,7 +372,7 @@ curl -fsS \
 2. RFC 通过 SSH/scp 推送到模拟 po0：
 
 ```bash
-scp -i /root/.ssh/nft_auth_push_test \
+scp -i /etc/nft-auth-whitelist/ssh/nft_auth_push \
   /tmp/nft-auth-allow.json \
   nftauth@TEST_VPS:/var/lib/nft-auth-whitelist/inbox/allow.json
 ```
@@ -443,14 +443,14 @@ curl -fsS \
 2. RFC 日本机通过 **SSH stdin** 推送（无需 scp 落地）：
 
 ```bash
-cat /tmp/nft-auth-allow.json | ssh -i /root/.ssh/nft_auth_push_test \
+cat /tmp/nft-auth-allow.json | ssh -i /etc/nft-auth-whitelist/ssh/nft_auth_push \
   nftauth@TEST_VPS
 ```
 
 如果有自定义端口：
 
 ```bash
-cat /tmp/nft-auth-allow.json | ssh -i /root/.ssh/nft_auth_push_test \
+cat /tmp/nft-auth-allow.json | ssh -i /etc/nft-auth-whitelist/ssh/nft_auth_push \
   -p TEST_VPS_SSH_PORT \
   nftauth@TEST_VPS
 ```
@@ -509,13 +509,13 @@ Browser
     "timeout_seconds": 10,
     "targets": [
       {
-        "name": "test-vps",
+        "name": "receiver-1",
         "user": "nftauth",
-        "host": "198.176.54.35",
-        "port": 2222,
-        "identity_file": "/root/.ssh/nft_auth_push_test",
+        "host": "RECEIVE_HOST",
+        "port": 22,
+        "identity_file": "/etc/nft-auth-whitelist/ssh/nft_auth_push",
         "strict_host_key_checking": true,
-        "known_hosts_file": "/root/.ssh/known_hosts"
+        "known_hosts_file": "/etc/nft-auth-whitelist/ssh/known_hosts"
       }
     ]
   }
@@ -527,11 +527,11 @@ Browser
 实际执行等价于（无远端命令，`allow.json` 走 stdin）：
 
 ```bash
-ssh -i /root/.ssh/nft_auth_push_test -p 2222 \
+ssh -i /etc/nft-auth-whitelist/ssh/nft_auth_push -p 22 \
   -o BatchMode=yes -o ConnectTimeout=10 \
   -o StrictHostKeyChecking=yes \
-  -o UserKnownHostsFile=/root/.ssh/known_hosts \
-  nftauth@198.176.54.35
+  -o UserKnownHostsFile=/etc/nft-auth-whitelist/ssh/known_hosts \
+  nftauth@RECEIVE_HOST
 ```
 
 接收端 `~nftauth/.ssh/authorized_keys`（forced command）：
@@ -543,7 +543,7 @@ command="/usr/local/bin/nft-auth-receive -config /etc/nft-auth-whitelist/receive
 准备 `known_hosts`（`strict_host_key_checking=true` 时必须，否则首次连接会因无法确认指纹而失败）。在 RFC 机器上：
 
 ```bash
-ssh-keyscan -p 2222 198.176.54.35 >> /root/.ssh/known_hosts
+ssh-keyscan -p 22 RECEIVE_HOST >> /etc/nft-auth-whitelist/ssh/known_hosts
 # 或手动 ssh 一次确认 fingerprint
 ```
 
@@ -556,7 +556,7 @@ print(json.load(open("/etc/nft-auth-whitelist/server.json"))["pull_token"])
 PY
 )"
 curl -fsS -H "Authorization: Bearer $PULL_TOKEN" http://127.0.0.1:8088/allow.json \
-  | ssh -i /root/.ssh/nft_auth_push_test -p 2222 nftauth@198.176.54.35
+  | ssh -i /etc/nft-auth-whitelist/ssh/nft_auth_push -p 22 nftauth@RECEIVE_HOST
 ```
 
 确认返回 `ok entries=...` 后，再把 `server.json` 的 `push.enabled` 设为 `true` 并重启 auth-server。
@@ -569,7 +569,76 @@ curl -fsS -H "Authorization: Bearer $PULL_TOKEN" http://127.0.0.1:8088/allow.jso
 - 本轮**不启用 nft / `-apply`**；接真实 po0 前先在国外 VPS 测试。
 - 管理入口 **SSH 2222 永远不要纳入自动拦截**，避免锁死管理入口。
 
-## 20. TODO
+## 20. 角色化安装 / 升级 / 发布（v0.5.0）
+
+一个根目录脚本 `install.sh` 按**角色**部署；脚本只复制文件、建目录/用户、可选装 systemd 单元，
+**绝不**自动启动服务、enable nft/`--apply`、改 `sshd_config`/防火墙、覆盖已有配置，或修改
+`authorized_keys`（除非显式传 `--install-authorized-key`）。详见 `docs/`。
+
+### 角色
+
+| 角色 | 机器 | 安装内容 |
+| --- | --- | --- |
+| `auth-server` | 日本 RFC 认证机 | `nft-auth-server` + 配置/数据/日志目录 + `/etc/systemd/system/nft-auth-server.service`（不 enable/start）。详见 [docs/deploy-auth-server.md](./docs/deploy-auth-server.md) |
+| `receive` | 国外 VPS / 未来 po0 | `nft-auth-receive` + `nftauth` 用户 + `inbox` 目录；打印 forced command 示例（按需 SSH 启动，无常驻服务）。详见 [docs/deploy-receive.md](./docs/deploy-receive.md) |
+| `puller` | 调试 / 兼容 | `nft-auth-puller` + `puller.json` / `puller-file.json` 示例（默认 export，不启用 nft/apply） |
+| `all` | 仅开发/测试 | 安装三个二进制（不建议生产默认） |
+
+### 命令
+
+```bash
+sudo ./install.sh --role auth-server
+sudo ./install.sh --role receive
+sudo ./install.sh --role receive --install-authorized-key /path/to/push_key.pub
+sudo ./install.sh --role puller
+sudo ./install.sh --update --role auth-server     # 只换二进制（先备份 *.bak.<时间戳>），不动配置
+./install.sh --role auth-server --dry-run          # 只打印动作，不改系统（无需 root）
+./install.sh --help
+```
+
+可选项：`--no-systemd`、`--prefix`、`--config-dir`、`--data-dir`、`--log-dir`、`--user`。
+已有配置不会被覆盖：脚本改写 `<name>.json.new` 供对比。
+
+### 私有 GitHub 仓库
+
+先在 GitHub 建一个 **private** 仓库（不要 public），再：
+
+```bash
+git remote add origin git@github.com:misaka-cpu/nft-auth-whitelist.git
+git push -u origin main          # 当前本地分支可能是 master，按需 git branch -M main
+```
+
+> 推送前务必 `bash scripts/secret-scan.sh` 确认无真实密钥/IP 泄露；`dist/`、`*.local.json`、
+> 私钥等已被 `.gitignore` 忽略。
+
+仓库公开发布后，可用一键安装（**需仓库可被 curl 访问**）：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/misaka-cpu/nft-auth-whitelist/main/install.sh | bash -s -- --role auth-server
+curl -fsSL https://raw.githubusercontent.com/misaka-cpu/nft-auth-whitelist/main/install.sh | bash -s -- --role receive
+```
+
+（private 仓库的一键安装需自带凭据；离线则用 `scripts/package.sh` 生成的发布包。）
+
+### 构建 / 打包 / 自检
+
+```bash
+bash scripts/build.sh                  # 三个二进制 -> dist/
+bash scripts/build.sh --all-platforms  # 另出 dist/linux-amd64、dist/linux-arm64
+bash scripts/package.sh                # 生成 dist/nft-auth-whitelist-linux-{amd64,arm64}.tar.gz
+bash scripts/secret-scan.sh            # 扫描密钥/令牌/私钥泄露（example 占位符放行）
+bash scripts/check.sh                  # gofmt + test + vet + build + build.sh + secret-scan + test-install
+```
+
+发布包内含 `bin/`、`configs/`、`docs/`、`install.sh`、`README.md`、`SECURITY.md`，不含任何真实 secret。
+
+### 安全提醒
+
+- 真实 po0 的 push target 必须 `strict_host_key_checking=true`，接收端 key 必须 forced command。
+- push / receive 失败都保留旧 `allow.txt`；不启用 nft/`--apply`；不接真实国内 po0前先在国外 VPS 测试。
+- **SSH 管理端口（如 2222）永远不要纳入自动拦截。** 不提交任何真实 secret/token/password/私钥/真实 IP。
+
+## 21. TODO
 
 - [ ] 与 nftables-nat-rust-enhanced 的 URL source whitelist 正式集成（待主项目支持）。
 - [ ] 更细的 per-IP 速率限制策略。
