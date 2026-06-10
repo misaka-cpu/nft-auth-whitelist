@@ -14,26 +14,57 @@ type RateLimit struct {
 	MaxFailuresPerMinute int  `json:"max_failures_per_minute"`
 }
 
+// PushTarget describes one SSH receiver the auth-server pushes allow.json to.
+// The receiver's authorized_keys forced command runs nft-auth-receive, so no
+// remote command is ever specified here.
+type PushTarget struct {
+	Name         string `json:"name"`
+	User         string `json:"user"`
+	Host         string `json:"host"`
+	Port         int    `json:"port"`
+	IdentityFile string `json:"identity_file"`
+	// StrictHostKeyChecking defaults to true (a nil/absent value is treated as
+	// true). A test environment may set it explicitly to false, but a real po0
+	// MUST keep it true. Use StrictHostKey() to read the effective value.
+	StrictHostKeyChecking *bool  `json:"strict_host_key_checking"`
+	KnownHostsFile        string `json:"known_hosts_file"`
+}
+
+// StrictHostKey returns the effective strict-host-key-checking setting, which
+// defaults to true when unset.
+func (t PushTarget) StrictHostKey() bool {
+	return t.StrictHostKeyChecking == nil || *t.StrictHostKeyChecking
+}
+
+// PushConfig controls whether (and where) the auth-server pushes a freshly
+// signed allow.json after each successful authentication.
+type PushConfig struct {
+	Enabled        bool         `json:"enabled"`
+	TimeoutSeconds int          `json:"timeout_seconds"`
+	Targets        []PushTarget `json:"targets"`
+}
+
 // ServerConfig is the auth-server configuration.
 type ServerConfig struct {
-	Listen              string    `json:"listen"`
-	BaseURL             string    `json:"base_url"`
-	Username            string    `json:"username"`
-	Password            string    `json:"password"`
-	PullToken           string    `json:"pull_token"`
-	HMACSecret          string    `json:"hmac_secret"`
-	TTLSeconds          int       `json:"ttl_seconds"`
-	MaxEntries          int       `json:"max_entries"`
-	AllowIPv4           bool      `json:"allow_ipv4"`
-	AllowIPv6           bool      `json:"allow_ipv6"`
-	AllowCIDRExpandIPv4 bool      `json:"allow_cidr_expand_ipv4"`
-	TrustedProxyCIDRs   []string  `json:"trusted_proxy_cidrs"`
-	ClientIPHeaders     []string  `json:"client_ip_headers"`
-	TrustedProxies      []string  `json:"trusted_proxies"` // legacy: use trusted_proxy_cidrs
-	RealIPHeader        string    `json:"real_ip_header"`  // legacy: use client_ip_headers
-	DataDir             string    `json:"data_dir"`
-	AuditLog            string    `json:"audit_log"`
-	RateLimit           RateLimit `json:"rate_limit"`
+	Listen              string     `json:"listen"`
+	BaseURL             string     `json:"base_url"`
+	Username            string     `json:"username"`
+	Password            string     `json:"password"`
+	PullToken           string     `json:"pull_token"`
+	HMACSecret          string     `json:"hmac_secret"`
+	TTLSeconds          int        `json:"ttl_seconds"`
+	MaxEntries          int        `json:"max_entries"`
+	AllowIPv4           bool       `json:"allow_ipv4"`
+	AllowIPv6           bool       `json:"allow_ipv6"`
+	AllowCIDRExpandIPv4 bool       `json:"allow_cidr_expand_ipv4"`
+	TrustedProxyCIDRs   []string   `json:"trusted_proxy_cidrs"`
+	ClientIPHeaders     []string   `json:"client_ip_headers"`
+	TrustedProxies      []string   `json:"trusted_proxies"` // legacy: use trusted_proxy_cidrs
+	RealIPHeader        string     `json:"real_ip_header"`  // legacy: use client_ip_headers
+	DataDir             string     `json:"data_dir"`
+	AuditLog            string     `json:"audit_log"`
+	RateLimit           RateLimit  `json:"rate_limit"`
+	Push                PushConfig `json:"push"`
 }
 
 // NFTConfig is the optional, default-off nft guard configuration.
@@ -122,6 +153,18 @@ func LoadServerConfig(path string) (*ServerConfig, error) {
 	if c.MaxEntries <= 0 {
 		c.MaxEntries = 200
 	}
+	if c.Push.TimeoutSeconds <= 0 {
+		c.Push.TimeoutSeconds = 10
+	}
+	for i := range c.Push.Targets {
+		if c.Push.Targets[i].Port == 0 {
+			c.Push.Targets[i].Port = 22
+		}
+		if c.Push.Targets[i].StrictHostKeyChecking == nil {
+			v := true
+			c.Push.Targets[i].StrictHostKeyChecking = &v
+		}
+	}
 	if err := c.Validate(); err != nil {
 		return nil, err
 	}
@@ -179,6 +222,42 @@ func (c *ServerConfig) Validate() error {
 	}
 	if !c.AllowIPv4 && !c.AllowIPv6 {
 		return fmt.Errorf("at least one of allow_ipv4/allow_ipv6 must be true")
+	}
+	if err := c.Push.validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validate checks the push block. It is a no-op unless push is enabled.
+func (p PushConfig) validate() error {
+	if !p.Enabled {
+		return nil
+	}
+	if len(p.Targets) == 0 {
+		return fmt.Errorf("push.enabled is true but push.targets is empty")
+	}
+	for i, t := range p.Targets {
+		missing := []string{}
+		if t.Name == "" {
+			missing = append(missing, "name")
+		}
+		if t.User == "" {
+			missing = append(missing, "user")
+		}
+		if t.Host == "" {
+			missing = append(missing, "host")
+		}
+		if t.IdentityFile == "" {
+			missing = append(missing, "identity_file")
+		}
+		if len(missing) > 0 {
+			label := t.Name
+			if label == "" {
+				label = fmt.Sprintf("#%d", i)
+			}
+			return fmt.Errorf("push target %s missing required fields: %s", label, strings.Join(missing, ", "))
+		}
 	}
 	return nil
 }

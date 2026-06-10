@@ -5,6 +5,7 @@ import (
 	"html"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/misaka-cpu/nft-auth-whitelist/internal/audit"
@@ -13,6 +14,7 @@ import (
 	"github.com/misaka-cpu/nft-auth-whitelist/internal/config"
 	"github.com/misaka-cpu/nft-auth-whitelist/internal/ipx"
 	"github.com/misaka-cpu/nft-auth-whitelist/internal/signer"
+	"github.com/misaka-cpu/nft-auth-whitelist/internal/sshpush"
 	"github.com/misaka-cpu/nft-auth-whitelist/internal/store"
 )
 
@@ -27,6 +29,7 @@ type server struct {
 	client  *clientip.Extractor
 	now     func() time.Time
 	limiter *failureLimiter
+	pusher  sshpush.Pusher
 }
 
 func newServer(cfg *config.ServerConfig, st *store.Store, al *audit.Logger) *server {
@@ -40,6 +43,7 @@ func newServer(cfg *config.ServerConfig, st *store.Store, al *audit.Logger) *ser
 		}),
 		now:     time.Now,
 		limiter: newFailureLimiter(cfg.RateLimit),
+		pusher:  sshpush.Pusher{}, // SSHPath defaults to "ssh"
 	}
 }
 
@@ -176,10 +180,17 @@ func (s *server) handleRoot(w http.ResponseWriter, r *http.Request) {
 		s.audit.Log(audit.ActionEntryExpire, audit.ResultOK, map[string]interface{}{"cidr": c, "reason": "evicted"})
 	}
 
-	s.renderRoot(w, res.Entry)
+	// Optional automatic SSH push of a freshly signed allow.json. A push failure
+	// never affects the recorded entry above and never fails this request.
+	var pushResults []sshpush.Result
+	if s.cfg.Push.Enabled {
+		pushResults = s.doPush(s.now())
+	}
+
+	s.renderRoot(w, res.Entry, pushResults)
 }
 
-func (s *server) renderRoot(w http.ResponseWriter, e signer.Entry) {
+func (s *server) renderRoot(w http.ResponseWriter, e signer.Entry, pushResults []sshpush.Result) {
 	scope := "/32"
 	if family := ipx.FamilyOfCIDR(e.CIDR); family == "ipv6" {
 		scope = "/128"
@@ -192,6 +203,8 @@ func (s *server) renderRoot(w http.ResponseWriter, e signer.Entry) {
 	if scope == "/24" {
 		warn = `<p class="warn">⚠ 风险提示：/24 会放行整个 256 个地址的网段，请仅在你确实拥有该网段时使用。</p>`
 	}
+
+	pushHTML := s.renderPushSection(pushResults)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprintf(w, `<!doctype html>
@@ -215,6 +228,7 @@ table{border-collapse:collapse}td{padding:.2rem .8rem;border-bottom:1px solid #e
 <tr><td>命中次数</td><td>%d</td></tr>
 </table>
 %s
+%s
 <p>说明：本服务只记录“你访问本页面的来源公网 IP”，不接受任何由你自行提交的 IP。重新访问本页面可刷新过期时间。</p>
 </body></html>
 `,
@@ -225,5 +239,38 @@ table{border-collapse:collapse}td{padding:.2rem .8rem;border-bottom:1px solid #e
 		ttl.String(),
 		e.HitCount,
 		warn,
+		pushHTML,
 	)
+}
+
+// renderPushSection renders the per-target push results. It shows only the
+// target name and a short non-secret status (never identity_file or any secret).
+func (s *server) renderPushSection(results []sshpush.Result) string {
+	if !s.cfg.Push.Enabled {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(`<h2>Push results</h2>`)
+	if len(results) == 0 {
+		b.WriteString(`<p>Push: 无目标</p>`)
+		return b.String()
+	}
+	b.WriteString(`<ul>`)
+	for _, r := range results {
+		status := "failed"
+		detail := r.Reason
+		if r.OK {
+			status = "ok"
+			detail = r.Stdout
+		}
+		// detail is already redacted of secrets by doPush; escape for HTML.
+		line := fmt.Sprintf("<li>%s: %s, %dms", html.EscapeString(r.Name), status, r.DurationMs)
+		if detail != "" {
+			line += " — <code>" + html.EscapeString(detail) + "</code>"
+		}
+		line += "</li>"
+		b.WriteString(line)
+	}
+	b.WriteString(`</ul>`)
+	return b.String()
 }

@@ -476,7 +476,100 @@ cat /var/lib/nft-auth-whitelist/pulled-state.json
 tail -n 20 /var/log/nft-auth-whitelist-receive-audit.log
 ```
 
-## 19. TODO
+## 19. Auth-server automatic SSH push（v0.4.0）
+
+把第 18 节里**手动**执行的 `curl /allow.json | ssh nftauth@TEST_VPS` 变成 auth-server 在**认证成功后自动**完成：用户认证成功 → 记录 IP → 生成 fresh signed `allow.json` → 通过 **SSH stdin** 推送到配置的接收端（接收端 forced command 自动跑 `nft-auth-receive`）。
+
+推荐链路：
+
+```text
+Browser
+  -> Cloudflare Access
+  -> auth-server（Basic Auth 成功）
+  -> automatic ssh push（stdin，不传远端命令）
+  -> nft-auth-receive forced command（校验 HMAC/TTL/CIDR）
+  -> allow.txt
+```
+
+关键行为：
+
+- push **默认关闭**（`push.enabled=false`），不配置时行为与旧版完全一致。
+- 复用与 `/allow.json` **完全相同**的 envelope 生成与签名逻辑，接收端用同一个 `hmac_secret` 校验。
+- **同步**推送但每个 target 有超时（默认 10s）；多个 target 逐个独立执行，部分成功/失败分别记录与展示。
+- push 失败**不影响认证记录**、**不删除 allow entry**、**不返回 500**，页面照常显示认证成功并标注 `Push failed`。
+- 调用系统 `ssh`（`os/exec` 参数数组，不经 shell，不做字符串拼接，杜绝注入），**不传远端命令、不使用 scp**。
+- audit 记录 `push.start` / `push.success` / `push.fail`（含 target/host/port/duration_ms/exit_status/截断后的 stdout·stderr 摘要），**绝不记录 hmac_secret / pull_token / password / Authorization / Cookie / CF Access token**；输出摘要还会主动 redact 已配置的 secret。
+
+`server.json` push 配置示例：
+
+```json
+{
+  "push": {
+    "enabled": false,
+    "timeout_seconds": 10,
+    "targets": [
+      {
+        "name": "test-vps",
+        "user": "nftauth",
+        "host": "198.176.54.35",
+        "port": 2222,
+        "identity_file": "/root/.ssh/nft_auth_push_test",
+        "strict_host_key_checking": true,
+        "known_hosts_file": "/root/.ssh/known_hosts"
+      }
+    ]
+  }
+}
+```
+
+字段：`enabled` 默认 false；`timeout_seconds` 默认 10（≤0 取默认）；`targets` 默认空（enabled=true 但为空启动报错）；`name`/`user`/`host`/`identity_file` 必填；`port` 默认 22；`strict_host_key_checking` 默认 true（缺省即 true，测试环境可显式 false，**真实 po0 必须 true**）；`known_hosts_file` 非空时附加 `-o UserKnownHostsFile=...`。
+
+实际执行等价于（无远端命令，`allow.json` 走 stdin）：
+
+```bash
+ssh -i /root/.ssh/nft_auth_push_test -p 2222 \
+  -o BatchMode=yes -o ConnectTimeout=10 \
+  -o StrictHostKeyChecking=yes \
+  -o UserKnownHostsFile=/root/.ssh/known_hosts \
+  nftauth@198.176.54.35
+```
+
+接收端 `~nftauth/.ssh/authorized_keys`（forced command）：
+
+```text
+command="/usr/local/bin/nft-auth-receive -config /etc/nft-auth-whitelist/receive.json",no-pty,no-agent-forwarding,no-X11-forwarding,no-port-forwarding ssh-ed25519 AAAA... nft-auth-rfc-to-test-vps
+```
+
+准备 `known_hosts`（`strict_host_key_checking=true` 时必须，否则首次连接会因无法确认指纹而失败）。在 RFC 机器上：
+
+```bash
+ssh-keyscan -p 2222 198.176.54.35 >> /root/.ssh/known_hosts
+# 或手动 ssh 一次确认 fingerprint
+```
+
+启用前先手动验证 forced command 链路可用：
+
+```bash
+PULL_TOKEN="$(python3 - <<'PY'
+import json
+print(json.load(open("/etc/nft-auth-whitelist/server.json"))["pull_token"])
+PY
+)"
+curl -fsS -H "Authorization: Bearer $PULL_TOKEN" http://127.0.0.1:8088/allow.json \
+  | ssh -i /root/.ssh/nft_auth_push_test -p 2222 nftauth@198.176.54.35
+```
+
+确认返回 `ok entries=...` 后，再把 `server.json` 的 `push.enabled` 设为 `true` 并重启 auth-server。
+
+安全提醒：
+
+- 真实 po0 必须 `strict_host_key_checking=true`，并提前准备好 `known_hosts`。
+- 接收端 key 必须 **forced command**：不允许 shell、不允许端口转发、不允许任意命令。
+- push 失败**不会清空旧 `allow.txt`**（保留行为由接收端 `nft-auth-receive` 保证）。
+- 本轮**不启用 nft / `-apply`**；接真实 po0 前先在国外 VPS 测试。
+- 管理入口 **SSH 2222 永远不要纳入自动拦截**，避免锁死管理入口。
+
+## 20. TODO
 
 - [ ] 与 nftables-nat-rust-enhanced 的 URL source whitelist 正式集成（待主项目支持）。
 - [ ] 更细的 per-IP 速率限制策略。

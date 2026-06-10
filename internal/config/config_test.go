@@ -106,6 +106,96 @@ func TestLoadReceiveConfigDefaults(t *testing.T) {
 	}
 }
 
+// serverJSON returns a minimal valid server config with the given push block
+// spliced in (pass "" for no push block).
+func serverJSON(push string) string {
+	base := `{
+	  "username": "admin",
+	  "password": "pw",
+	  "pull_token": "tok",
+	  "hmac_secret": "secret"`
+	if push != "" {
+		base += ",\n  " + push
+	}
+	return base + "\n}"
+}
+
+func TestLoadServerConfigPushDefaultsDisabled(t *testing.T) {
+	c, err := LoadServerConfig(writeTempConfig(t, serverJSON("")))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if c.Push.Enabled {
+		t.Fatal("push must default disabled")
+	}
+	if c.Push.TimeoutSeconds != 10 {
+		t.Fatalf("timeout default = %d, want 10", c.Push.TimeoutSeconds)
+	}
+}
+
+func TestLoadServerConfigPushTargetDefaults(t *testing.T) {
+	push := `"push": {
+	    "enabled": true,
+	    "targets": [
+	      {"name": "t1", "user": "nftauth", "host": "1.2.3.4", "identity_file": "/k"}
+	    ]
+	  }`
+	c, err := LoadServerConfig(writeTempConfig(t, serverJSON(push)))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	tg := c.Push.Targets[0]
+	if tg.Port != 22 {
+		t.Fatalf("port default = %d, want 22", tg.Port)
+	}
+	if !tg.StrictHostKey() {
+		t.Fatal("strict_host_key_checking must default true")
+	}
+	if c.Push.TimeoutSeconds != 10 {
+		t.Fatalf("timeout default = %d, want 10", c.Push.TimeoutSeconds)
+	}
+}
+
+func TestLoadServerConfigPushStrictExplicitFalse(t *testing.T) {
+	push := `"push": {
+	    "enabled": true,
+	    "targets": [
+	      {"name": "t1", "user": "u", "host": "h", "identity_file": "/k", "strict_host_key_checking": false}
+	    ]
+	  }`
+	c, err := LoadServerConfig(writeTempConfig(t, serverJSON(push)))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if c.Push.Targets[0].StrictHostKey() {
+		t.Fatal("explicit strict_host_key_checking=false must be honoured")
+	}
+}
+
+func TestLoadServerConfigPushEnabledEmptyTargets(t *testing.T) {
+	push := `"push": {"enabled": true, "targets": []}`
+	_, err := LoadServerConfig(writeTempConfig(t, serverJSON(push)))
+	if err == nil || !strings.Contains(err.Error(), "targets is empty") {
+		t.Fatalf("expected empty-targets error, got %v", err)
+	}
+}
+
+func TestLoadServerConfigPushTargetMissingFields(t *testing.T) {
+	for _, field := range []string{"name", "user", "host", "identity_file"} {
+		full := map[string]string{"name": "t1", "user": "u", "host": "h", "identity_file": "/k"}
+		delete(full, field)
+		parts := []string{}
+		for k, v := range full {
+			parts = append(parts, `"`+k+`": "`+v+`"`)
+		}
+		push := `"push": {"enabled": true, "targets": [{` + strings.Join(parts, ", ") + `}]}`
+		_, err := LoadServerConfig(writeTempConfig(t, serverJSON(push)))
+		if err == nil || !strings.Contains(err.Error(), field) {
+			t.Fatalf("missing %s: expected error naming the field, got %v", field, err)
+		}
+	}
+}
+
 func TestLoadReceiveConfigMissingFields(t *testing.T) {
 	cases := map[string]string{
 		"hmac_secret": `{

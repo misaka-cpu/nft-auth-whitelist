@@ -23,5 +23,20 @@
   "rate_limit": {
     "enabled": true,
     "max_failures_per_minute": 10
+  },
+  "push": {
+    "enabled": false,
+    "timeout_seconds": 10,
+    "targets": [
+      {
+        "name": "test-vps",
+        "user": "nftauth",
+        "host": "198.176.54.35",
+        "port": 2222,
+        "identity_file": "/root/.ssh/nft_auth_push_test",
+        "strict_host_key_checking": true,
+        "known_hosts_file": "/root/.ssh/known_hosts"
+      }
+    ]
   }
 }
