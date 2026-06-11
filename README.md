@@ -473,7 +473,7 @@ forced command 安全边界：
 ```bash
 cat /var/lib/nft-auth-whitelist/allow.txt
 cat /var/lib/nft-auth-whitelist/pulled-state.json
-tail -n 20 /var/log/nft-auth-whitelist-receive-audit.log
+tail -n 20 /var/log/nft-auth-whitelist/receive-audit.log
 ```
 
 ## 19. Auth-server automatic SSH push（v0.4.0）
@@ -627,10 +627,11 @@ bash scripts/build.sh                  # 三个二进制 -> dist/
 bash scripts/build.sh --all-platforms  # 另出 dist/linux-amd64、dist/linux-arm64
 bash scripts/package.sh                # 生成 dist/nft-auth-whitelist-linux-{amd64,arm64}.tar.gz
 bash scripts/secret-scan.sh            # 扫描密钥/令牌/私钥泄露（example 占位符放行）
-bash scripts/check.sh                  # gofmt + test + vet + build + build.sh + secret-scan + test-install
+bash scripts/check.sh                  # gofmt + test + vet + build + build.sh + secret-scan + test-install + test-preflight
 ```
 
-发布包内含 `bin/`、`configs/`、`docs/`、`install.sh`、`README.md`、`SECURITY.md`，不含任何真实 secret。
+发布包内含 `bin/`、`configs/`、`docs/`、`scripts/preflight-*.sh`、`install.sh`、
+`README.md`、`SECURITY.md`，不含任何真实 secret。
 
 ### 安全提醒
 
@@ -638,7 +639,105 @@ bash scripts/check.sh                  # gofmt + test + vet + build + build.sh +
 - push / receive 失败都保留旧 `allow.txt`；不启用 nft/`--apply`；不接真实国内 po0前先在国外 VPS 测试。
 - **SSH 管理端口（如 2222）永远不要纳入自动拦截。** 不提交任何真实 secret/token/password/私钥/真实 IP。
 
-## 21. TODO
+## 21. Production po0 shadow deployment（v0.6.0）
+
+真实国内 po0 接入前先做 shadow deployment：日本 RFC auth-server 自动 SSH push 到真实 po0，
+po0 的 `nft-auth-receive` forced command 只写 `allow.txt` / `pulled-state.json` /
+`receive-audit.log`。此阶段**不启用 nft guard、不执行 `-apply`、不修改主项目、不修改
+`/etc/nat.toml`、不拦截 SSH 2222**。完整流程见
+[docs/deploy-po0-shadow.md](./docs/deploy-po0-shadow.md)。
+
+### A. 在真实 po0 上安装 receive 角色
+
+三选一获取项目：
+
+```bash
+# curl 一键安装（仓库可访问时）
+curl -fsSL https://raw.githubusercontent.com/misaka-cpu/nft-auth-whitelist/main/install.sh | sudo bash -s -- --role receive
+
+# git clone
+git clone git@github.com:misaka-cpu/nft-auth-whitelist.git
+cd nft-auth-whitelist
+bash scripts/build.sh
+sudo ./install.sh --role receive
+
+# offline package
+tar -xzf nft-auth-whitelist-linux-amd64.tar.gz
+cd nft-auth-whitelist
+sudo ./install.sh --role receive
+```
+
+### B. 编辑 receive.json
+
+```bash
+sudo vi /etc/nft-auth-whitelist/receive.json
+```
+
+确认：
+
+- `hmac_secret` 与日本 RFC auth-server 一致。
+- `audit_log` 指向 `/var/log/nft-auth-whitelist/receive-audit.log`。
+- `nft.enabled=false`。
+- `mode=export`。
+
+### C. 配置 nftauth authorized_keys forced command
+
+`/home/nftauth/.ssh/authorized_keys` 中的 push 公钥必须锁成 forced command：
+
+```text
+command="/usr/local/bin/nft-auth-receive -config /etc/nft-auth-whitelist/receive.json",no-pty,no-agent-forwarding,no-X11-forwarding,no-port-forwarding ssh-ed25519 AAAA... nft-auth-rfc-to-po0
+```
+
+### D. 在真实 po0 上运行 receive preflight
+
+```bash
+bash scripts/preflight-receive.sh
+```
+
+默认只读输出 `PASS` / `WARN` / `FAIL`；如只需修复标准数据/日志目录权限，可显式：
+
+```bash
+bash scripts/preflight-receive.sh --fix-perms
+```
+
+`--fix-perms` 只会处理 `/var/lib/nft-auth-whitelist`、
+`/var/lib/nft-auth-whitelist/inbox`、`/var/log/nft-auth-whitelist`，不会修改
+`authorized_keys`。
+
+### E. 在日本 RFC 上新增第二个 push target
+
+在 `/etc/nft-auth-whitelist/server.json` 的 `push.targets` 中新增 `po0-shadow`，保持：
+
+- `user=nftauth`。
+- `identity_file` 指向 RFC 上的 push 私钥。
+- `strict_host_key_checking=true`。
+- `known_hosts_file` 指向已固定 po0 指纹的 known_hosts。
+
+### F. 在日本 RFC 上运行 push target preflight
+
+```bash
+bash scripts/preflight-push-target.sh --target po0-shadow --ssh-test
+```
+
+`--ssh-test` 会请求远端执行 `whoami`。正确结果是 forced command 忽略 `whoami`，
+`nft-auth-receive` 因 empty input 返回错误；如果输出 `whoami` 或 `nftauth`，必须 FAIL。
+
+### G. 浏览器认证并检查 Push results
+
+访问日本 RFC 认证页，确认页面中的 Push results 里 `po0-shadow` 为 ok。push 失败不影响认证记录，
+也不会清空旧 `allow.txt`。
+
+### H. 在真实 po0 查看旁路产物
+
+```bash
+cat /var/lib/nft-auth-whitelist/allow.txt
+cat /var/lib/nft-auth-whitelist/pulled-state.json
+tail -n 50 /var/log/nft-auth-whitelist/receive-audit.log
+```
+
+这些文件在 shadow mode 中只用于观察和审计，不参与防火墙决策。
+
+## 22. TODO
 
 - [ ] 与 nftables-nat-rust-enhanced 的 URL source whitelist 正式集成（待主项目支持）。
 - [ ] 更细的 per-IP 速率限制策略。

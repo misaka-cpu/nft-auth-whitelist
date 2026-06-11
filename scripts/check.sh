@@ -32,5 +32,8 @@ bash scripts/secret-scan.sh
 echo "==> scripts/test-install.sh"
 bash scripts/test-install.sh
 
+echo "==> scripts/test-preflight.sh"
+bash scripts/test-preflight.sh
+
 echo
 echo "==> all checks passed"

@@ -22,7 +22,13 @@
 ## receive / push
 
 - [ ] 接收端 key 为 **forced command**：无 shell、无端口转发、无任意命令。
+- [ ] forced command 测试中请求 `whoami` 不会执行；期望看到 receive empty input 类错误。
 - [ ] 真实 po0 的 push target `strict_host_key_checking=true`，且已备好 `known_hosts`。
+- [ ] `known_hosts` 已固定真实 po0 主机指纹，不依赖首次连接交互确认。
+- [ ] `hmac_secret` 未泄露，且 receive 端与日本 RFC auth-server 一致。
+- [ ] `allow.txt` 只是旁路文件，未接入自动拦截。
+- [ ] receive 端 `nft.enabled=false`，`mode=export`。
+- [ ] 没有给 receive 设计或启用 systemd 常驻服务；只通过 SSH forced command 按需启动。
 - [ ] 校验失败保留旧 `allow.txt`，不覆盖旧 `inbox`。
 - [ ] audit / 页面不含任何 secret / token / password。
 
