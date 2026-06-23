@@ -84,6 +84,13 @@ func TestReceiveSuccess(t *testing.T) {
 	if !bytes.Equal(inbox, body) {
 		t.Fatal("inbox content must equal the received bytes")
 	}
+	inboxInfo, err := os.Stat(cfg.InboxAllowJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inboxInfo.Mode().Perm() != 0o600 {
+		t.Fatalf("inbox mode = %o, want 600", inboxInfo.Mode().Perm())
+	}
 	// State json written and parseable.
 	var st pipeline.State
 	b, err := os.ReadFile(cfg.OutputStateJSON)

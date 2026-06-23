@@ -58,14 +58,8 @@ func (r *receiver) run(stdin io.Reader) error {
 		return err
 	}
 
-	// Top-level envelope expiry: only trustworthy now that the signature passed.
-	if !env.ExpiresAt.IsZero() && !env.ExpiresAt.After(now) {
-		r.audit.Log(audit.ActionReceiveFail, audit.ResultError, map[string]interface{}{"reason": "envelope expired"})
-		return fmt.Errorf("envelope expired at %s", env.ExpiresAt.UTC().Format(time.RFC3339))
-	}
-
 	// 10. Persist the verified envelope to the inbox, then export. Both atomic.
-	if err := pipeline.AtomicWrite(r.cfg.InboxAllowJSON, data, 0o644); err != nil {
+	if err := pipeline.AtomicWrite(r.cfg.InboxAllowJSON, data, 0o600); err != nil {
 		r.audit.Log(audit.ActionOutputWriteFail, audit.ResultError, map[string]interface{}{"reason": err.Error()})
 		return err
 	}

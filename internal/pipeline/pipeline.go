@@ -68,6 +68,19 @@ func VerifyAndFilter(env *signer.Envelope, p Params, al *audit.Logger, now time.
 	}
 	al.Log(audit.ActionSignatureOK, audit.ResultOK, nil)
 
+	if env.Version != 1 {
+		al.Log(p.RejectAction, audit.ResultError, map[string]interface{}{"reason": "unsupported envelope version"})
+		return nil, fmt.Errorf("unsupported envelope version %d", env.Version)
+	}
+	if env.ExpiresAt.IsZero() {
+		al.Log(p.RejectAction, audit.ResultError, map[string]interface{}{"reason": "missing envelope expiry"})
+		return nil, fmt.Errorf("envelope expires_at is required")
+	}
+	if !env.ExpiresAt.After(now) {
+		al.Log(p.RejectAction, audit.ResultError, map[string]interface{}{"reason": "envelope expired"})
+		return nil, fmt.Errorf("envelope expired at %s", env.ExpiresAt.UTC().Format(time.RFC3339))
+	}
+
 	// max_entries guard: reject (do not truncate) an oversized envelope so a
 	// misbehaving producer cannot blow up the local allowlist.
 	if len(env.Entries) > p.MaxEntries {
@@ -107,7 +120,7 @@ func WriteOutputs(now time.Time, res *Result, p Params, al *audit.Logger) error 
 	if len(res.CIDRs) > 0 {
 		txt += "\n"
 	}
-	if err := AtomicWrite(p.OutputAllowTxt, []byte(txt), 0o644); err != nil {
+	if err := AtomicWrite(p.OutputAllowTxt, []byte(txt), 0o600); err != nil {
 		al.Log(audit.ActionOutputWriteFail, audit.ResultError, map[string]interface{}{"reason": err.Error()})
 		return err
 	}
@@ -123,7 +136,7 @@ func WriteOutputs(now time.Time, res *Result, p Params, al *audit.Logger) error 
 			al.Log(audit.ActionOutputWriteFail, audit.ResultError, map[string]interface{}{"reason": err.Error()})
 			return err
 		}
-		if err := AtomicWrite(p.OutputStateJSON, b, 0o644); err != nil {
+		if err := AtomicWrite(p.OutputStateJSON, b, 0o600); err != nil {
 			al.Log(audit.ActionOutputWriteFail, audit.ResultError, map[string]interface{}{"reason": err.Error()})
 			return err
 		}

@@ -420,3 +420,37 @@ func TestDryRunWritesNothing(t *testing.T) {
 		t.Fatal("dry-run nft script must not contain flush ruleset")
 	}
 }
+
+func assertPullerPreserved(t *testing.T, path string) {
+	t.Helper()
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(got)) != "9.9.9.9/32" {
+		t.Fatalf("old allow.txt was replaced: %q", got)
+	}
+}
+
+func TestPullerRejectsInvalidEnvelopeMetadata(t *testing.T) {
+	now := time.Now().UTC()
+	for name, mutate := range map[string]func(*signer.Envelope){
+		"unsupported version": func(env *signer.Envelope) { env.Version = 2 },
+		"missing expiry":      func(env *signer.Envelope) { env.ExpiresAt = time.Time{} },
+		"expired":             func(env *signer.Envelope) { env.ExpiresAt = now.Add(-time.Minute) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			env := envWithEntries([]signer.Entry{validEntry("1.2.3.4/32", "1.2.3.4")})
+			mutate(env)
+			in := writeFile(t, "allow.json", mustSign(t, env, testSecret))
+			p, cfg, _ := testFilePuller(t, in)
+			if err := os.WriteFile(cfg.OutputAllowTxt, []byte("9.9.9.9/32\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := p.runOnce(runOptions{}); err == nil {
+				t.Fatal("expected metadata rejection")
+			}
+			assertPullerPreserved(t, cfg.OutputAllowTxt)
+		})
+	}
+}
