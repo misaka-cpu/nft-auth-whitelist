@@ -236,3 +236,30 @@ func TestAuditNeverContainsPassword(t *testing.T) {
 		t.Fatal("audit log must never contain token/secret")
 	}
 }
+
+func TestRateLimitUsesResolvedClientIP(t *testing.T) {
+	srv, _ := testServer(t, func(c *config.ServerConfig) {
+		c.TrustedProxyCIDRs = []string{"127.0.0.1/32"}
+		c.RateLimit.MaxFailuresPerMinute = 1
+	})
+
+	request := func(clientIP string) int {
+		rec := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r.RemoteAddr = "127.0.0.1:1111"
+		r.Header.Set("CF-Connecting-IP", clientIP)
+		r.SetBasicAuth("admin", "wrong")
+		srv.Handler().ServeHTTP(rec, r)
+		return rec.Code
+	}
+
+	if got := request("1.1.1.1"); got != http.StatusUnauthorized {
+		t.Fatalf("first client got %d", got)
+	}
+	if got := request("2.2.2.2"); got != http.StatusUnauthorized {
+		t.Fatalf("second client shared proxy bucket, got %d", got)
+	}
+	if got := request("1.1.1.1"); got != http.StatusTooManyRequests {
+		t.Fatalf("first client second failure got %d", got)
+	}
+}

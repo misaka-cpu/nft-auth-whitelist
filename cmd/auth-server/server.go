@@ -90,10 +90,11 @@ func (s *server) handleRoot(w http.ResponseWriter, r *http.Request) {
 
 	resolved := s.client.Extract(r)
 	peer := ipString(resolved.RemoteIP, clientHost(r))
+	rateKey := ipString(resolved.ClientIP, peer)
 
 	if !auth.CheckBasicAuth(r, s.cfg.Username, s.cfg.Password) {
-		// Rate-limit repeated failures from the same peer.
-		if s.limiter.blocked(peer, s.now()) {
+		// Rate-limit repeated failures from the resolved client address.
+		if s.limiter.blocked(rateKey, s.now()) {
 			s.audit.Log(audit.ActionRateLimited, audit.ResultWarn, map[string]interface{}{
 				"peer":      peer,
 				"remote_ip": peer,
