@@ -312,6 +312,7 @@ guard 行为：
 - chain 使用 `policy accept`，**只对配置里的 `protected_tcp_ports` / `protected_udp_ports`**
   做「允许来自白名单、否则 drop」。
 - **不默认保护所有端口；不默认保护 SSH；不修改 INPUT/FORWARD 策略；不做全局 drop。**
+- The guard hooks local `input` traffic only; it does not protect DNAT traffic traversing `forward`.
 
 幂等性：脚本开头用 `table ... / delete table ...` 仅重置**本项目自己的表**，这不是 flush ruleset。
 

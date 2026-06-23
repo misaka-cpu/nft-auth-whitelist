@@ -18,7 +18,11 @@ import (
 	"strings"
 )
 
-// Config describes what to generate.
+// TableName is the only nftables table this package may manage.
+const TableName = "nft_auth_whitelist"
+
+// Config describes what to generate. Table is retained for compatibility but
+// is intentionally ignored: GenerateScript always uses TableName.
 type Config struct {
 	Table             string
 	Allow4            []string // canonical IPv4 CIDRs
@@ -47,10 +51,7 @@ func elements(cidrs []string) string {
 // create-empty / delete / recreate preamble only affects this project's own
 // table; it is deliberately NOT a "flush ruleset".
 func GenerateScript(c Config) string {
-	table := c.Table
-	if table == "" {
-		table = "nft_auth_whitelist"
-	}
+	table := TableName
 
 	var b strings.Builder
 	b.WriteString("#!/usr/sbin/nft -f\n")

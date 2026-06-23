@@ -66,3 +66,13 @@ func TestGenerateScriptPolicyAccept(t *testing.T) {
 		t.Fatal("policy must be accept, never a global drop")
 	}
 }
+
+func TestGenerateScriptIgnoresArbitraryTableNames(t *testing.T) {
+	s := GenerateScript(Config{Table: "filter", ProtectedTCPPorts: []int{8443}})
+	if strings.Contains(s, "table inet filter") {
+		t.Fatal("generator must never manage a caller-selected table")
+	}
+	if !strings.Contains(s, "table inet nft_auth_whitelist") {
+		t.Fatal("generator must use the fixed project table")
+	}
+}

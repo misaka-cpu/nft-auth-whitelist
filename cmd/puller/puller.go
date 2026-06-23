@@ -187,7 +187,6 @@ func (p *puller) buildNFTScript(cidrs []string) string {
 		}
 	}
 	return nftguard.GenerateScript(nftguard.Config{
-		Table:             p.cfg.NFT.Table,
 		Allow4:            v4,
 		Allow6:            v6,
 		ProtectedTCPPorts: p.cfg.NFT.ProtectedTCPPorts,
