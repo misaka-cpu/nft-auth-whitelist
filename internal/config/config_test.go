@@ -26,8 +26,8 @@ func writeTempConfig(t *testing.T, body string) string {
 func TestLoadPullerConfigDefaultsSourceHTTP(t *testing.T) {
 	p := writeTempConfig(t, `{
 	  "server_url": "https://auth.example.com/allow.json",
-	  "pull_token": "`+validToken+`",
-	  "hmac_secret": "`+validHMACSecret+`",
+	  "pull_token": "example-test-token-0123456789abcdef",
+	  "hmac_secret": "example-test-hmac-0123456789abcdef",
 	  "output_allow_txt": "/tmp/allow.txt"
 	}`)
 	c, err := LoadPullerConfig(p)
@@ -46,7 +46,7 @@ func TestLoadPullerConfigFileSource(t *testing.T) {
 	  "input_allow_json": "/var/lib/nft-auth-whitelist/inbox/allow.json",
 	  "server_url": "",
 	  "pull_token": "",
-	  "hmac_secret": "`+validHMACSecret+`",
+	  "hmac_secret": "example-test-hmac-0123456789abcdef",
 	  "output_allow_txt": "/tmp/allow.txt",
 	  "require_https": true
 	}`)
@@ -66,7 +66,7 @@ func TestLoadPullerConfigFileSourceRequiresInput(t *testing.T) {
 	p := writeTempConfig(t, `{
 	  "source": "file",
 	  "input_allow_json": "",
-	  "hmac_secret": "`+validHMACSecret+`",
+	  "hmac_secret": "example-test-hmac-0123456789abcdef",
 	  "output_allow_txt": "/tmp/allow.txt"
 	}`)
 	_, err := LoadPullerConfig(p)
@@ -78,7 +78,7 @@ func TestLoadPullerConfigFileSourceRequiresInput(t *testing.T) {
 func TestLoadPullerConfigInvalidSource(t *testing.T) {
 	p := writeTempConfig(t, `{
 	  "source": "ftp",
-	  "hmac_secret": "`+validHMACSecret+`",
+	  "hmac_secret": "example-test-hmac-0123456789abcdef",
 	  "output_allow_txt": "/tmp/allow.txt"
 	}`)
 	_, err := LoadPullerConfig(p)
@@ -90,7 +90,7 @@ func TestLoadPullerConfigInvalidSource(t *testing.T) {
 func fullReceiveJSON() string {
 	return `{
 	  "inbox_allow_json": "/var/lib/nft-auth-whitelist/inbox/allow.json",
-	  "hmac_secret": "` + validHMACSecret + `",
+	  "hmac_secret": "example-test-hmac-0123456789abcdef",
 	  "output_allow_txt": "/var/lib/nft-auth-whitelist/allow.txt",
 	  "output_state_json": "/var/lib/nft-auth-whitelist/pulled-state.json"
 	}`
@@ -117,9 +117,9 @@ func TestLoadReceiveConfigDefaults(t *testing.T) {
 func serverJSON(push string) string {
 	base := `{
 	  "username": "admin",
-	  "password": "` + validPassword + `",
-	  "pull_token": "` + validToken + `",
-	  "hmac_secret": "` + validHMACSecret + `"`
+	  "password": "example-test-password-0123456789",
+	  "pull_token": "example-test-token-0123456789abcdef",
+	  "hmac_secret": "example-test-hmac-0123456789abcdef"`
 	if push != "" {
 		base += ",\n  " + push
 	}
@@ -210,17 +210,17 @@ func TestLoadReceiveConfigMissingFields(t *testing.T) {
 		  "output_state_json": "/s"
 		}`,
 		"inbox_allow_json": `{
-		  "hmac_secret": "` + validHMACSecret + `",
+		  "hmac_secret": "example-test-hmac-0123456789abcdef",
 		  "output_allow_txt": "/a",
 		  "output_state_json": "/s"
 		}`,
 		"output_allow_txt": `{
-		  "hmac_secret": "` + validHMACSecret + `",
+		  "hmac_secret": "example-test-hmac-0123456789abcdef",
 		  "inbox_allow_json": "/i",
 		  "output_state_json": "/s"
 		}`,
 		"output_state_json": `{
-		  "hmac_secret": "` + validHMACSecret + `",
+		  "hmac_secret": "example-test-hmac-0123456789abcdef",
 		  "inbox_allow_json": "/i",
 		  "output_allow_txt": "/a"
 		}`,
