@@ -4,6 +4,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"strings"
 )
@@ -202,6 +203,69 @@ func (c *ServerConfig) EffectiveClientIPHeaders() []string {
 	return nil
 }
 
+const (
+	minPasswordLength = 16
+	minTokenLength    = 32
+	minHMACLength     = 32
+	nftTableName      = "nft_auth_whitelist"
+)
+
+func rejectPlaceholder(name, value string) error {
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(value)), "change-me") {
+		return fmt.Errorf("%s still uses a sample placeholder", name)
+	}
+	return nil
+}
+
+func validateCredential(name, value string, min int) error {
+	if err := rejectPlaceholder(name, value); err != nil {
+		return err
+	}
+	if len(strings.TrimSpace(value)) < min {
+		return fmt.Errorf("%s must be at least %d characters", name, min)
+	}
+	return nil
+}
+
+func validateTrustedProxyCIDRs(values []string) error {
+	for _, raw := range values {
+		value := strings.TrimSpace(raw)
+		if !strings.Contains(value, "/") {
+			ip := net.ParseIP(value)
+			if ip == nil {
+				return fmt.Errorf("invalid trusted proxy entry")
+			}
+			if ip.To4() != nil {
+				value += "/32"
+			} else {
+				value += "/128"
+			}
+		}
+		_, network, err := net.ParseCIDR(value)
+		if err != nil {
+			return fmt.Errorf("invalid trusted proxy CIDR")
+		}
+		ones, bits := network.Mask.Size()
+		if bits > 0 && ones == 0 {
+			return fmt.Errorf("trusted proxy CIDR must not cover an entire address family")
+		}
+	}
+	return nil
+}
+
+func (n NFTConfig) validate() error {
+	if n.Table != nftTableName {
+		return fmt.Errorf("nft.table must be %q", nftTableName)
+	}
+	ports := append(append([]int(nil), n.ProtectedTCPPorts...), n.ProtectedUDPPorts...)
+	for _, port := range ports {
+		if port < 1 || port > 65535 {
+			return fmt.Errorf("protected port %d is outside 1..65535", port)
+		}
+	}
+	return nil
+}
+
 // Validate checks required secret fields are present.
 func (c *ServerConfig) Validate() error {
 	missing := []string{}
@@ -219,6 +283,21 @@ func (c *ServerConfig) Validate() error {
 	}
 	if len(missing) > 0 {
 		return fmt.Errorf("missing required config fields: %s", strings.Join(missing, ", "))
+	}
+	if err := rejectPlaceholder("username", c.Username); err != nil {
+		return err
+	}
+	if err := validateCredential("password", c.Password, minPasswordLength); err != nil {
+		return err
+	}
+	if err := validateCredential("pull_token", c.PullToken, minTokenLength); err != nil {
+		return err
+	}
+	if err := validateCredential("hmac_secret", c.HMACSecret, minHMACLength); err != nil {
+		return err
+	}
+	if err := validateTrustedProxyCIDRs(c.EffectiveTrustedProxyCIDRs()); err != nil {
+		return err
 	}
 	if !c.AllowIPv4 && !c.AllowIPv6 {
 		return fmt.Errorf("at least one of allow_ipv4/allow_ipv6 must be true")
@@ -251,12 +330,18 @@ func (p PushConfig) validate() error {
 		if t.IdentityFile == "" {
 			missing = append(missing, "identity_file")
 		}
+		label := t.Name
+		if label == "" {
+			label = fmt.Sprintf("#%d", i)
+		}
 		if len(missing) > 0 {
-			label := t.Name
-			if label == "" {
-				label = fmt.Sprintf("#%d", i)
-			}
 			return fmt.Errorf("push target %s missing required fields: %s", label, strings.Join(missing, ", "))
+		}
+		if t.Port < 1 || t.Port > 65535 {
+			return fmt.Errorf("push target %s port must be within 1..65535", label)
+		}
+		if t.StrictHostKey() && strings.TrimSpace(t.KnownHostsFile) == "" {
+			return fmt.Errorf("push target %s missing required field: known_hosts_file", label)
 		}
 	}
 	return nil
@@ -327,11 +412,22 @@ func (c *PullerConfig) Validate() error {
 	if len(missing) > 0 {
 		return fmt.Errorf("missing required config fields: %s", strings.Join(missing, ", "))
 	}
+	if c.Source == "" || c.Source == "http" {
+		if err := validateCredential("pull_token", c.PullToken, minTokenLength); err != nil {
+			return err
+		}
+	}
+	if err := validateCredential("hmac_secret", c.HMACSecret, minHMACLength); err != nil {
+		return err
+	}
 	if c.Mode != "export" && c.Mode != "nft" {
 		return fmt.Errorf("mode must be \"export\" or \"nft\", got %q", c.Mode)
 	}
 	if !c.AllowIPv4 && !c.AllowIPv6 {
 		return fmt.Errorf("at least one of allow_ipv4/allow_ipv6 must be true")
+	}
+	if err := c.NFT.validate(); err != nil {
+		return err
 	}
 	return nil
 }
@@ -384,11 +480,17 @@ func (c *ReceiveConfig) Validate() error {
 	if len(missing) > 0 {
 		return fmt.Errorf("missing required config fields: %s", strings.Join(missing, ", "))
 	}
+	if err := validateCredential("hmac_secret", c.HMACSecret, minHMACLength); err != nil {
+		return err
+	}
 	if c.Mode != "export" && c.Mode != "nft" {
 		return fmt.Errorf("mode must be \"export\" or \"nft\", got %q", c.Mode)
 	}
 	if !c.AllowIPv4 && !c.AllowIPv6 {
 		return fmt.Errorf("at least one of allow_ipv4/allow_ipv6 must be true")
+	}
+	if err := c.NFT.validate(); err != nil {
+		return err
 	}
 	return nil
 }

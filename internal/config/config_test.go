@@ -7,6 +7,12 @@ import (
 	"testing"
 )
 
+const (
+	validPassword   = "test-password-0123456789"
+	validToken      = "test-token-0123456789abcdef012345"
+	validHMACSecret = "test-hmac-0123456789abcdef012345"
+)
+
 func writeTempConfig(t *testing.T, body string) string {
 	t.Helper()
 	p := filepath.Join(t.TempDir(), "puller.json")
@@ -20,8 +26,8 @@ func writeTempConfig(t *testing.T, body string) string {
 func TestLoadPullerConfigDefaultsSourceHTTP(t *testing.T) {
 	p := writeTempConfig(t, `{
 	  "server_url": "https://auth.example.com/allow.json",
-	  "pull_token": "tok",
-	  "hmac_secret": "secret",
+	  "pull_token": "`+validToken+`",
+	  "hmac_secret": "`+validHMACSecret+`",
 	  "output_allow_txt": "/tmp/allow.txt"
 	}`)
 	c, err := LoadPullerConfig(p)
@@ -40,7 +46,7 @@ func TestLoadPullerConfigFileSource(t *testing.T) {
 	  "input_allow_json": "/var/lib/nft-auth-whitelist/inbox/allow.json",
 	  "server_url": "",
 	  "pull_token": "",
-	  "hmac_secret": "secret",
+	  "hmac_secret": "`+validHMACSecret+`",
 	  "output_allow_txt": "/tmp/allow.txt",
 	  "require_https": true
 	}`)
@@ -60,7 +66,7 @@ func TestLoadPullerConfigFileSourceRequiresInput(t *testing.T) {
 	p := writeTempConfig(t, `{
 	  "source": "file",
 	  "input_allow_json": "",
-	  "hmac_secret": "secret",
+	  "hmac_secret": "`+validHMACSecret+`",
 	  "output_allow_txt": "/tmp/allow.txt"
 	}`)
 	_, err := LoadPullerConfig(p)
@@ -72,7 +78,7 @@ func TestLoadPullerConfigFileSourceRequiresInput(t *testing.T) {
 func TestLoadPullerConfigInvalidSource(t *testing.T) {
 	p := writeTempConfig(t, `{
 	  "source": "ftp",
-	  "hmac_secret": "secret",
+	  "hmac_secret": "`+validHMACSecret+`",
 	  "output_allow_txt": "/tmp/allow.txt"
 	}`)
 	_, err := LoadPullerConfig(p)
@@ -84,7 +90,7 @@ func TestLoadPullerConfigInvalidSource(t *testing.T) {
 func fullReceiveJSON() string {
 	return `{
 	  "inbox_allow_json": "/var/lib/nft-auth-whitelist/inbox/allow.json",
-	  "hmac_secret": "secret",
+	  "hmac_secret": "` + validHMACSecret + `",
 	  "output_allow_txt": "/var/lib/nft-auth-whitelist/allow.txt",
 	  "output_state_json": "/var/lib/nft-auth-whitelist/pulled-state.json"
 	}`
@@ -111,9 +117,9 @@ func TestLoadReceiveConfigDefaults(t *testing.T) {
 func serverJSON(push string) string {
 	base := `{
 	  "username": "admin",
-	  "password": "pw",
-	  "pull_token": "tok",
-	  "hmac_secret": "secret"`
+	  "password": "` + validPassword + `",
+	  "pull_token": "` + validToken + `",
+	  "hmac_secret": "` + validHMACSecret + `"`
 	if push != "" {
 		base += ",\n  " + push
 	}
@@ -137,7 +143,7 @@ func TestLoadServerConfigPushTargetDefaults(t *testing.T) {
 	push := `"push": {
 	    "enabled": true,
 	    "targets": [
-	      {"name": "t1", "user": "nftauth", "host": "1.2.3.4", "identity_file": "/k"}
+	      {"name": "t1", "user": "nftauth", "host": "1.2.3.4", "identity_file": "/k", "known_hosts_file": "/known-hosts"}
 	    ]
 	  }`
 	c, err := LoadServerConfig(writeTempConfig(t, serverJSON(push)))
@@ -182,7 +188,7 @@ func TestLoadServerConfigPushEnabledEmptyTargets(t *testing.T) {
 
 func TestLoadServerConfigPushTargetMissingFields(t *testing.T) {
 	for _, field := range []string{"name", "user", "host", "identity_file"} {
-		full := map[string]string{"name": "t1", "user": "u", "host": "h", "identity_file": "/k"}
+		full := map[string]string{"name": "t1", "user": "u", "host": "h", "identity_file": "/k", "known_hosts_file": "/known-hosts"}
 		delete(full, field)
 		parts := []string{}
 		for k, v := range full {
@@ -204,17 +210,17 @@ func TestLoadReceiveConfigMissingFields(t *testing.T) {
 		  "output_state_json": "/s"
 		}`,
 		"inbox_allow_json": `{
-		  "hmac_secret": "s",
+		  "hmac_secret": "` + validHMACSecret + `",
 		  "output_allow_txt": "/a",
 		  "output_state_json": "/s"
 		}`,
 		"output_allow_txt": `{
-		  "hmac_secret": "s",
+		  "hmac_secret": "` + validHMACSecret + `",
 		  "inbox_allow_json": "/i",
 		  "output_state_json": "/s"
 		}`,
 		"output_state_json": `{
-		  "hmac_secret": "s",
+		  "hmac_secret": "` + validHMACSecret + `",
 		  "inbox_allow_json": "/i",
 		  "output_allow_txt": "/a"
 		}`,
@@ -272,6 +278,108 @@ func TestEffectiveTrustedProxyCIDRsIncludesLegacyEntries(t *testing.T) {
 	for i := range want {
 		if got[i] != want[i] {
 			t.Fatalf("trusted proxies = %#v, want %#v", got, want)
+		}
+	}
+}
+
+func validServerConfig() *ServerConfig {
+	return &ServerConfig{
+		Username:   "admin",
+		Password:   validPassword,
+		PullToken:  validToken,
+		HMACSecret: validHMACSecret,
+		AllowIPv4:  true,
+	}
+}
+
+func validPullerConfig() *PullerConfig {
+	return &PullerConfig{
+		Source:         "http",
+		ServerURL:      "https://auth.example.test/allow.json",
+		PullToken:      validToken,
+		HMACSecret:     validHMACSecret,
+		OutputAllowTxt: "/tmp/allow.txt",
+		AllowIPv4:      true,
+		Mode:           "export",
+		NFT:            NFTConfig{Table: "nft_auth_whitelist"},
+	}
+}
+
+func TestServerConfigRejectsUnsafeSecrets(t *testing.T) {
+	for name, mutate := range map[string]func(*ServerConfig){
+		"placeholder username": func(c *ServerConfig) { c.Username = "change-me" },
+		"placeholder password": func(c *ServerConfig) { c.Password = "change-me-password" },
+		"short password":       func(c *ServerConfig) { c.Password = "short" },
+		"short pull token":     func(c *ServerConfig) { c.PullToken = "short" },
+		"short hmac secret":    func(c *ServerConfig) { c.HMACSecret = "short" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := validServerConfig()
+			mutate(c)
+			if err := c.Validate(); err == nil {
+				t.Fatal("expected validation error")
+			}
+		})
+	}
+}
+
+func TestPullerAndReceiveRejectUnsafeSecrets(t *testing.T) {
+	p := validPullerConfig()
+	p.PullToken = "change-me-token"
+	if err := p.Validate(); err == nil {
+		t.Fatal("puller must reject placeholder pull_token")
+	}
+
+	r := &ReceiveConfig{
+		InboxAllowJSON:  "/tmp/inbox.json",
+		HMACSecret:      "short",
+		OutputAllowTxt:  "/tmp/allow.txt",
+		OutputStateJSON: "/tmp/state.json",
+		AllowIPv4:       true,
+		Mode:            "export",
+		NFT:             NFTConfig{Table: "nft_auth_whitelist"},
+	}
+	if err := r.Validate(); err == nil {
+		t.Fatal("receiver must reject short hmac_secret")
+	}
+}
+
+func TestServerConfigRejectsUnsafeTrustedProxyCIDRs(t *testing.T) {
+	for _, cidr := range []string{"not-a-cidr", "0.0.0.0/0", "::/0"} {
+		c := validServerConfig()
+		c.TrustedProxyCIDRs = []string{cidr}
+		if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "trusted proxy") {
+			t.Fatalf("%q: got %v", cidr, err)
+		}
+	}
+}
+
+func TestPushTargetRequiresValidPortAndKnownHosts(t *testing.T) {
+	c := validServerConfig()
+	c.Push = PushConfig{Enabled: true, Targets: []PushTarget{{
+		Name: "po0", User: "nftauth", Host: "example.test",
+		Port: 70000, IdentityFile: "/key",
+	}}}
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "port") {
+		t.Fatalf("invalid port: got %v", err)
+	}
+
+	c.Push.Targets[0].Port = 22
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "known_hosts_file") {
+		t.Fatalf("missing known_hosts_file: got %v", err)
+	}
+}
+
+func TestNFTConfigRejectsOtherTablesAndInvalidPorts(t *testing.T) {
+	for _, nft := range []NFTConfig{
+		{Table: "filter"},
+		{Table: "nft_auth_whitelist", ProtectedTCPPorts: []int{0}},
+		{Table: "nft_auth_whitelist", ProtectedUDPPorts: []int{65536}},
+	} {
+		c := validPullerConfig()
+		c.NFT = nft
+		if err := c.Validate(); err == nil {
+			t.Fatalf("expected validation error for %+v", nft)
 		}
 	}
 }
