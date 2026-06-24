@@ -15,7 +15,7 @@ Use these for every code-only release before copying artifacts to any host:
 
 ## First-time validation
 
-Use these when staging a new RFC JP or po0 host for the first time:
+Use these when staging a new RFC JP or po0 host for the first time. For the detailed real-host SSH push sequence, follow [Real-host SSH Push Checklist](./real-host-ssh-push-checklist.md).
 
 - [ ] Install the RFC JP auth-server role with `sudo ./install.sh --role auth-server`.
 - [ ] Edit `/etc/nft-auth-whitelist/server.json` with strong non-placeholder credentials.

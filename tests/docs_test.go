@@ -116,3 +116,28 @@ func TestDeployChecklistCoversDeliveryModes(t *testing.T) {
 		}
 	}
 }
+
+func TestRealHostSSHPushChecklistCoversSafetyGates(t *testing.T) {
+	checklist := readRepoFile(t, "docs/real-host-ssh-push-checklist.md")
+	deployChecklist := readRepoFile(t, "docs/deploy-checklist.md")
+	if !strings.Contains(deployChecklist, "real-host-ssh-push-checklist.md") {
+		t.Error("deploy checklist must link to the real-host SSH push checklist")
+	}
+	for _, want := range []string{
+		"Temporary SSH key",
+		"Do not use passwords",
+		"known_hosts",
+		"forced command",
+		"preflight-receive.sh",
+		"preflight-push-target.sh",
+		"--ssh-test",
+		"Rollback",
+		"Do not run nft",
+		"Do not enable or start services",
+		"Stop and ask",
+	} {
+		if !strings.Contains(checklist, want) {
+			t.Errorf("real-host SSH push checklist must contain %q", want)
+		}
+	}
+}
