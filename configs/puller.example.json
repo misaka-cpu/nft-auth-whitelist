@@ -16,5 +16,5 @@
     "protected_tcp_ports": [],
     "protected_udp_ports": []
   },
-  "audit_log": "/var/log/nft-auth-whitelist-puller-audit.log"
+  "audit_log": "/var/log/nft-auth-whitelist/puller-audit.log"
 }

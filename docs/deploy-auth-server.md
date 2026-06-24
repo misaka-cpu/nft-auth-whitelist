@@ -39,8 +39,8 @@ sudo systemctl enable --now nft-auth-server.service
 sudo systemctl status nft-auth-server.service
 ```
 
-systemd 单元启用了 `NoNewPrivileges` / `ProtectSystem=full` / `ProtectHome=true`，并把
-`ReadWritePaths` 限定到数据、日志、配置目录。push 私钥放 `/etc/nft-auth-whitelist/ssh/`，
+systemd 单元启用了 `NoNewPrivileges` / `ProtectSystem=strict` / `ProtectHome=true`，并把
+`ReadWritePaths` 限定到数据、日志目录；配置目录保持只读。push 私钥放 `/etc/nft-auth-whitelist/ssh/`，
 不要依赖 `/root/.ssh`。
 
 ## 5. 自动 push（可选）

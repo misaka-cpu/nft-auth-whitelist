@@ -34,6 +34,19 @@ expect_fail "install --role bogus rejected"        bash "$INSTALL" --role bogus
 expect_fail "install missing --role rejected"      bash "$INSTALL"
 expect_fail "install unknown flag rejected"        bash "$INSTALL" --role all --frobnicate
 
+echo "== auth-server systemd hardening =="
+UNIT="$ROOT/systemd/nft-auth-whitelist-server.service"
+expect_ok   "sample unit runs with explicit root ownership" grep -q '^User=root$' "$UNIT"
+expect_ok   "sample unit runs with explicit root group" grep -q '^Group=root$' "$UNIT"
+expect_fail "sample unit has no DynamicUser" grep -q '^DynamicUser=' "$UNIT"
+expect_ok   "sample unit restricts writable paths" grep -q '^ReadWritePaths=/var/lib/nft-auth-whitelist /var/log/nft-auth-whitelist$' "$UNIT"
+expect_ok   "installer unit uses explicit root ownership" grep -q 'User=root' "$INSTALL"
+expect_ok   "installer unit uses strict filesystem protection" grep -q 'ProtectSystem=strict' "$INSTALL"
+expect_fail "installer unit does not make config writable" grep -qF 'ReadWritePaths=$DATA_DIR $LOG_DIR $CONFIG_DIR' "$INSTALL"
+expect_ok   "server audit log stays under log directory" grep -q '"audit_log": "/var/log/nft-auth-whitelist/server-audit.log"' "$ROOT/configs/server.example.json"
+expect_ok   "puller audit log stays under log directory" grep -q '"audit_log": "/var/log/nft-auth-whitelist/puller-audit.log"' "$ROOT/configs/puller.example.json"
+expect_ok   "file puller audit log stays under log directory" grep -q '"audit_log": "/var/log/nft-auth-whitelist/puller-audit.log"' "$ROOT/configs/puller-file.example.json"
+
 echo "== install.sh does not overwrite existing config (real run into temp dirs) =="
 # Ensure the auth-server binary exists so the real run can copy it.
 if [[ ! -x "$ROOT/dist/nft-auth-server" ]]; then

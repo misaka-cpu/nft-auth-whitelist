@@ -185,13 +185,15 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=$BIN_DIR/nft-auth-server -config $CONFIG_DIR/server.json
+User=root
+Group=root
+ExecStart=$BIN_DIR/nft-auth-server --config $CONFIG_DIR/server.json
 Restart=on-failure
 RestartSec=3
 NoNewPrivileges=true
-ProtectSystem=full
+ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=$DATA_DIR $LOG_DIR $CONFIG_DIR
+ReadWritePaths=$DATA_DIR $LOG_DIR
 PrivateTmp=true
 
 [Install]
