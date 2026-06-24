@@ -5,8 +5,8 @@
 #   dist/nft-auth-whitelist-linux-amd64.tar.gz
 #   dist/nft-auth-whitelist-linux-arm64.tar.gz
 #
-# Each archive contains: bin/, configs/, docs/, scripts/preflight-*.sh,
-# install.sh, README.md, SECURITY.md
+# Each archive contains: bin/, configs/, docs/, systemd/, selected scripts/,
+# install.sh, README.md, SECURITY.md, LICENSE
 # It contains NO secrets and NO real configs (only *.example.json templates).
 set -euo pipefail
 
@@ -31,10 +31,19 @@ for arch in amd64 arm64; do
   cp "$bindir"/nft-auth-* "$stage/bin/"
   cp -r configs "$stage/configs"
   cp -r docs "$stage/docs"
+  cp -r systemd "$stage/systemd"
   mkdir -p "$stage/scripts"
-  cp scripts/preflight-receive.sh scripts/preflight-push-target.sh "$stage/scripts/"
+  for script in \
+    scripts/preflight-receive.sh \
+    scripts/preflight-push-target.sh \
+    scripts/check.sh \
+    scripts/test-install.sh \
+    scripts/test-preflight.sh \
+    scripts/secret-scan.sh; do
+    cp "$script" "$stage/scripts/"
+  done
   cp install.sh "$stage/install.sh"
-  cp README.md SECURITY.md "$stage/"
+  cp README.md SECURITY.md LICENSE "$stage/"
   chmod +x "$stage/install.sh" "$stage/bin/"* "$stage/scripts/"*.sh
 
   tarball="$DIST/$NAME-linux-$arch.tar.gz"

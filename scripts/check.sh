@@ -26,6 +26,12 @@ go build ./...
 echo "==> scripts/build.sh"
 bash scripts/build.sh
 
+echo "==> scripts/package.sh"
+bash scripts/package.sh
+
+echo "==> scripts/test-package.sh"
+bash scripts/test-package.sh
+
 echo "==> scripts/secret-scan.sh"
 bash scripts/secret-scan.sh
 
