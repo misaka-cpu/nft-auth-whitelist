@@ -142,17 +142,27 @@ install_bin() {
   log "installed $dst"
 }
 
-# install_cfg <example> <dest>: install the sample only if dest is absent;
-# otherwise write dest.new and keep the existing file untouched.
+# install_cfg <example> <dest> [mode] [owner]: install the sample only if dest
+# is absent; otherwise write dest.new and keep the existing file untouched.
 install_cfg() {
-  local src="$1" dst="$2"
+  local src="$1" dst="$2" mode="${3:-0600}" owner="${4:-}"
   run install -d "$(dirname "$dst")"
   if [[ -f "$dst" ]]; then
-    run install -m 0600 "$src" "$dst.new"
+    run install -m "$mode" "$src" "$dst.new"
+    if [[ -n "$owner" ]]; then run chown "$owner" "$dst.new"; fi
     note "kept existing $dst (wrote $dst.new for comparison)"
   else
-    run install -m 0600 "$src" "$dst"
+    run install -m "$mode" "$src" "$dst"
+    if [[ -n "$owner" ]]; then run chown "$owner" "$dst"; fi
     log "installed sample $dst (edit it: set strong secrets)"
+  fi
+}
+
+fix_cfg_access() { # fix_cfg_access <path> <mode> <owner>
+  local dst="$1" mode="$2" owner="$3"
+  if $DRY_RUN || [[ -f "$dst" ]]; then
+    run chmod "$mode" "$dst"
+    run chown "$owner" "$dst"
   fi
 }
 
@@ -278,12 +288,13 @@ role_auth_server() {
 role_receive() {
   log "role: receive"
   ensure_user
-  make_dir "$CONFIG_DIR" 0750
+  make_dir "$CONFIG_DIR" 0750 "root:$SVC_USER"
   make_dir "$DATA_DIR" 0750 "$SVC_USER:$SVC_USER"
   make_dir "$DATA_DIR/inbox" 0750 "$SVC_USER:$SVC_USER"
   make_dir "$LOG_DIR" 0750 "$SVC_USER:$SVC_USER"
   install_bin nft-auth-receive
-  install_cfg "$SCRIPT_DIR/configs/receive.example.json" "$CONFIG_DIR/receive.json"
+  install_cfg "$SCRIPT_DIR/configs/receive.example.json" "$CONFIG_DIR/receive.json" 0640 "root:$SVC_USER"
+  fix_cfg_access "$CONFIG_DIR/receive.json" 0640 "root:$SVC_USER"
   if [[ -n "$AUTH_KEY_FILE" ]]; then
     install_authorized_key "$AUTH_KEY_FILE"
   else

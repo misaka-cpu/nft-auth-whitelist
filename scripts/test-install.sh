@@ -47,6 +47,23 @@ expect_ok   "server audit log stays under log directory" grep -q '"audit_log": "
 expect_ok   "puller audit log stays under log directory" grep -q '"audit_log": "/var/log/nft-auth-whitelist/puller-audit.log"' "$ROOT/configs/puller.example.json"
 expect_ok   "file puller audit log stays under log directory" grep -q '"audit_log": "/var/log/nft-auth-whitelist/puller-audit.log"' "$ROOT/configs/puller-file.example.json"
 
+receive_dry="$(bash "$INSTALL" --role receive --dry-run 2>&1)"
+if grep -qxF 'DRY: chown root:nftauth /etc/nft-auth-whitelist' <<<"$receive_dry"; then
+  ok "receive config dir is group-readable by nftauth"
+else
+  bad "receive config dir is not group-readable by nftauth"
+fi
+if grep -qF 'DRY: install -m 0640' <<<"$receive_dry" && grep -qF '/etc/nft-auth-whitelist/receive.json' <<<"$receive_dry"; then
+  ok "receive config installs with group-readable mode"
+else
+  bad "receive config does not install with group-readable mode"
+fi
+if grep -qxF 'DRY: chown root:nftauth /etc/nft-auth-whitelist/receive.json' <<<"$receive_dry"; then
+  ok "receive config ownership grants nftauth read access"
+else
+  bad "receive config ownership does not grant nftauth read access"
+fi
+
 echo "== install.sh does not overwrite existing config (real run into temp dirs) =="
 # Ensure the auth-server binary exists so the real run can copy it.
 if [[ ! -x "$ROOT/dist/nft-auth-server" ]]; then
