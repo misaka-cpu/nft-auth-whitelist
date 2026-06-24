@@ -10,14 +10,22 @@
 
 ## 1. 项目介绍
 
-`nft-auth-whitelist` 包含两个二进制：
+`nft-auth-whitelist` contains three binaries:
 
-| 二进制 | 运行位置 | 职责 |
+| Binary | Typical location | Responsibility |
 | --- | --- | --- |
-| `nft-auth-server` | 国外 RFC 机器 | HTTPS 认证页面（Basic Auth / Cloudflare Access 前门），记录来源 IP，带 TTL，导出签名后的 `allow.json` |
-| `nft-auth-puller` | 国内 po0 机器 | 定时主动拉取 `allow.json`，校验 HMAC 签名与 TTL，导出本地 `allow.txt` |
+| `nft-auth-server` | RFC JP machine | HTTPS authentication page, records authenticated client IPs with TTL, exports signed `allow.json`, and can push signed envelopes to receive targets |
+| `nft-auth-puller` | domestic po0 machine | Pull-based sidecar that fetches signed `allow.json`, verifies HMAC and TTL, and exports local `allow.txt` / state files |
+| `nft-auth-receive` | domestic po0 machine | SSH forced-command receiver for receive shadow mode; accepts signed envelopes over stdin and writes the same local shadow outputs |
 
-设计原则：**安全、简单、可审计**。第一版不追求功能多。
+There are two supported ways to move the signed allowlist to po0:
+
+- Puller mode: po0 periodically pulls `allow.json` from the RFC JP auth-server.
+- Receive shadow mode: RFC JP auth-server pushes a signed envelope over SSH to `nft-auth-receive`, which runs only as a forced command.
+
+Both paths default to export/shadow outputs. Neither path applies nft rules unless explicitly configured and invoked later.
+
+Design principle: **safe, simple, auditable**. The first delivery keeps the feature set small.
 
 ## 2. 工作方式
 

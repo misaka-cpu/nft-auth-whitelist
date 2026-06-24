@@ -85,3 +85,34 @@ func TestSecurityDocExists(t *testing.T) {
 		t.Error("SECURITY.md must cover HTTPS and TTL")
 	}
 }
+
+func TestReadmeDescribesThreeBinaries(t *testing.T) {
+	readme := readRepoFile(t, "README.md")
+	for _, want := range []string{"nft-auth-server", "nft-auth-puller", "nft-auth-receive"} {
+		if !strings.Contains(readme, want) {
+			t.Errorf("README must mention %s", want)
+		}
+	}
+	if strings.Contains(readme, "\u5305\u542b\u4e24\u4e2a\u4e8c\u8fdb\u5236") {
+		t.Error("README must not claim the project contains only two binaries")
+	}
+	if !strings.Contains(readme, "receive shadow") && !strings.Contains(readme, "shadow mode") {
+		t.Error("README must describe the receive shadow deployment path")
+	}
+}
+
+func TestDeployChecklistCoversDeliveryModes(t *testing.T) {
+	checklist := readRepoFile(t, "docs/deploy-checklist.md")
+	for _, want := range []string{
+		"First-time validation",
+		"Conditional revalidation",
+		"Routine release checks",
+		"RFC JP auth-server browser login",
+		"nft-auth-receive",
+		"Do not run nft",
+	} {
+		if !strings.Contains(checklist, want) {
+			t.Errorf("deploy checklist must contain %q", want)
+		}
+	}
+}
