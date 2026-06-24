@@ -35,6 +35,9 @@ bash scripts/test-package.sh
 echo "==> scripts/test-ci.sh"
 bash scripts/test-ci.sh
 
+echo "==> scripts/test-local-shadow.sh"
+bash scripts/test-local-shadow.sh
+
 echo "==> scripts/secret-scan.sh"
 bash scripts/secret-scan.sh
 

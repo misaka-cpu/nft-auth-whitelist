@@ -30,6 +30,7 @@ required_paths=(
   "scripts/check.sh"
   "scripts/test-install.sh"
   "scripts/test-preflight.sh"
+  "scripts/test-local-shadow.sh"
   "scripts/secret-scan.sh"
   "install.sh"
   "README.md"

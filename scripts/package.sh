@@ -39,6 +39,7 @@ for arch in amd64 arm64; do
     scripts/check.sh \
     scripts/test-install.sh \
     scripts/test-preflight.sh \
+    scripts/test-local-shadow.sh \
     scripts/secret-scan.sh; do
     cp "$script" "$stage/scripts/"
   done
