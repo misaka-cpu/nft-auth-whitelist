@@ -32,6 +32,9 @@ bash scripts/package.sh
 echo "==> scripts/test-package.sh"
 bash scripts/test-package.sh
 
+echo "==> scripts/test-ci.sh"
+bash scripts/test-ci.sh
+
 echo "==> scripts/secret-scan.sh"
 bash scripts/secret-scan.sh
 
