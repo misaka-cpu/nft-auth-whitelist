@@ -35,7 +35,7 @@ go vet ./...
 echo "==> go test"
 go test ./...
 
-VERSION="${VERSION:-0.5.0}"
+VERSION="${VERSION:-0.6.0}"
 COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo dev)"
 DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 LDFLAGS="-s -w \
