@@ -29,8 +29,18 @@ bash scripts/build.sh
 echo "==> scripts/secret-scan.sh"
 bash scripts/secret-scan.sh
 
+run_install_tests() {
+  if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
+    bash scripts/test-install.sh
+  elif command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+    sudo -n bash scripts/test-install.sh
+  else
+    bash scripts/test-install.sh
+  fi
+}
+
 echo "==> scripts/test-install.sh"
-bash scripts/test-install.sh
+run_install_tests
 
 echo "==> scripts/test-preflight.sh"
 bash scripts/test-preflight.sh
