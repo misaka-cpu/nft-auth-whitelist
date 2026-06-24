@@ -29,21 +29,22 @@ bash scripts/build.sh
 echo "==> scripts/secret-scan.sh"
 bash scripts/secret-scan.sh
 
-run_install_tests() {
+run_rooted_script() {
+  local script="$1"
   if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
-    bash scripts/test-install.sh
+    bash "$script"
   elif command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
-    sudo -n bash scripts/test-install.sh
+    sudo -n bash "$script"
   else
-    bash scripts/test-install.sh
+    bash "$script"
   fi
 }
 
 echo "==> scripts/test-install.sh"
-run_install_tests
+run_rooted_script scripts/test-install.sh
 
 echo "==> scripts/test-preflight.sh"
-bash scripts/test-preflight.sh
+run_rooted_script scripts/test-preflight.sh
 
 echo
 echo "==> all checks passed"
