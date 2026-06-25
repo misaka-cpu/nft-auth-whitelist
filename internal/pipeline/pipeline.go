@@ -13,11 +13,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/misaka-cpu/nft-auth-whitelist/internal/atomicfile"
 	"github.com/misaka-cpu/nft-auth-whitelist/internal/audit"
 	"github.com/misaka-cpu/nft-auth-whitelist/internal/ipx"
 	"github.com/misaka-cpu/nft-auth-whitelist/internal/signer"
@@ -161,30 +161,5 @@ func dedup(sorted []string) []string {
 // AtomicWrite writes via a temp file + rename in the destination directory, so a
 // reader never observes a half-written or empty file in place of the old one.
 func AtomicWrite(path string, data []byte, perm os.FileMode) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(dir, ".tmp-*")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
-
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Chmod(tmpName, perm); err != nil {
-		return err
-	}
-	return os.Rename(tmpName, path)
+	return atomicfile.WriteWithDir(path, data, perm, 0o700)
 }

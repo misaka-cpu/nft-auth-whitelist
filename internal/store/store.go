@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/misaka-cpu/nft-auth-whitelist/internal/atomicfile"
 	"github.com/misaka-cpu/nft-auth-whitelist/internal/signer"
 )
 
@@ -226,33 +227,5 @@ func (s *Store) persistLocked() error {
 	if err != nil {
 		return err
 	}
-	return atomicWrite(s.path, b, 0o600)
-}
-
-// atomicWrite writes data to a temp file in the same directory then renames it
-// into place.
-func atomicWrite(path string, data []byte, perm os.FileMode) error {
-	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".tmp-*")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
-
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Chmod(tmpName, perm); err != nil {
-		return err
-	}
-	return os.Rename(tmpName, path)
+	return atomicfile.Write(s.path, b, 0o600)
 }
