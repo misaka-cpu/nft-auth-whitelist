@@ -1,7 +1,7 @@
 # nft-auth-whitelist
 
 > 与 [nftables-nat-rust-enhanced](https://github.com/) 搭配使用的 **sidecar 配套项目**。
-> 用户在国外 RFC 机器上通过 HTTPS 认证页面登录，auth-server 记录其**真实来源公网 IP**（带 TTL，默认 `/32`），
+> 用户在 RFC 内网机器上通过 HTTPS 认证页面登录，auth-server 记录其**真实来源公网 IP**（带 TTL，默认 `/32`），
 > 国内 po0 机器上的 puller **主动拉取**已认证 IP 列表，默认只导出本地 `allow.txt`。
 
 本项目用 Go 实现，**仅使用标准库**，便于静态编译、低依赖部署。
@@ -14,14 +14,14 @@
 
 | Binary | Typical location | Responsibility |
 | --- | --- | --- |
-| `nft-auth-server` | RFC JP machine | HTTPS authentication page, records authenticated client IPs with TTL, exports signed `allow.json`, and can push signed envelopes to receive targets |
+| `nft-auth-server` | RFC internal machine | HTTPS authentication page, records authenticated client IPs with TTL, exports signed `allow.json`, and can push signed envelopes to receive targets |
 | `nft-auth-puller` | domestic po0 machine | Pull-based sidecar that fetches signed `allow.json`, verifies HMAC and TTL, and exports local `allow.txt` / state files |
 | `nft-auth-receive` | domestic po0 machine | SSH forced-command receiver for receive shadow mode; accepts signed envelopes over stdin and writes the same local shadow outputs |
 
 There are two supported ways to move the signed allowlist to po0:
 
-- Puller mode: po0 periodically pulls `allow.json` from the RFC JP auth-server.
-- Receive shadow mode: RFC JP auth-server pushes a signed envelope over SSH to `nft-auth-receive`, which runs only as a forced command.
+- Puller mode: po0 periodically pulls `allow.json` from the RFC internal auth-server.
+- Receive shadow mode: the RFC internal auth-server pushes a signed envelope over SSH to `nft-auth-receive`, which runs only as a forced command.
 
 Both paths default to export/shadow outputs. Neither path applies nft rules unless explicitly configured and invoked later.
 
@@ -61,10 +61,10 @@ Design principle: **safe, simple, auditable**. The first delivery keeps the feat
 - ❌ 不自动永久加白；不允许用户提交任意 IP（只用请求来源 IP）。
 - ❌ 默认不执行真实 `nft -f`；不自动修改 SSH 配置；不自动 `systemctl restart`。
 
-## 5. 快速开始：RFC 机器 auth-server
+## 5. 快速开始：RFC 内网机器 auth-server
 
 ```bash
-# 1. 构建（在开发机或 RFC 机器）
+# 1. 构建（在开发机或 RFC 内网机器）
 bash scripts/build.sh           # 输出到 dist/
 
 # 2. 安装二进制与示例配置（不会启动/覆盖已有配置；详见第 19 节角色化安装）
@@ -369,7 +369,7 @@ sudo systemctl enable --now nft-auth-whitelist-puller.timer          # po0
 
 示例流程：
 
-1. RFC 日本认证机生成 signed allow.json（仅本机回环，token 走 header）：
+1. RFC 内网认证机生成 signed allow.json（仅本机回环，token 走 header）：
 
 ```bash
 curl -fsS \
@@ -409,7 +409,7 @@ cat /var/lib/nft-auth-whitelist/pulled-state.json
 
 ## 18. SSH forced command receive mode（`nft-auth-receive`）
 
-`nft-auth-receive` 是接收端命令，专为 **SSH forced command** 设计：RFC 日本机把 signed `allow.json` 经 **SSH stdin** 推给接收端，接收端**只读 stdin**、校验、导出，**不监听任何端口、不暴露任何写白名单 API**。
+`nft-auth-receive` 是接收端命令，专为 **SSH forced command** 设计：RFC 内网机器把 signed `allow.json` 经 **SSH stdin** 推给接收端，接收端**只读 stdin**、校验、导出，**不监听任何端口、不暴露任何写白名单 API**。
 
 与 §17 file source 的区别：file source 需要先把文件 scp 落到 inbox 再由 puller 读；`nft-auth-receive` 直接从 stdin 接收并在校验通过后**自己**原子写 inbox + 导出 `allow.txt`，更适合锁死成「这把 key 只能干这一件事」。
 
@@ -432,9 +432,9 @@ nft-auth-receive -h                                             # 帮助
 
 失败安全边界（与 puller 一致）：输入为空 / 超限 / JSON 非法 / 签名错误 / 顶层过期 / IP·CIDR 不合规时**一律失败、不覆盖旧 `inbox`、不覆盖也不清空旧 `allow.txt`**；写入用临时文件 + rename 原子完成，不会出现空文件覆盖。本命令**没有 `-apply`**，永不执行 nft。
 
-### 测试流程（RFC 日本机 → 国外 VPS 模拟 po0）
+### 测试流程（RFC 内网机器 → 国外 VPS 模拟 po0）
 
-1. RFC 日本机生成 `allow.json`（token 走 header，不入 URL）：
+1. RFC 内网机器生成 `allow.json`（token 走 header，不入 URL）：
 
 ```bash
 PULL_TOKEN="$(python3 - <<'PY'
@@ -449,7 +449,7 @@ curl -fsS \
   -o /tmp/nft-auth-allow.json
 ```
 
-2. RFC 日本机通过 **SSH stdin** 推送（无需 scp 落地）：
+2. RFC 内网机器通过 **SSH stdin** 推送（无需 scp 落地）：
 
 ```bash
 cat /tmp/nft-auth-allow.json | ssh -i /etc/nft-auth-whitelist/ssh/nft_auth_push \
@@ -588,7 +588,7 @@ curl -fsS -H "Authorization: Bearer $PULL_TOKEN" http://127.0.0.1:8088/allow.jso
 
 | 角色 | 机器 | 安装内容 |
 | --- | --- | --- |
-| `auth-server` | 日本 RFC 认证机 | `nft-auth-server` + 配置/数据/日志目录 + `/etc/systemd/system/nft-auth-server.service`（不 enable/start）。详见 [docs/deploy-auth-server.md](./docs/deploy-auth-server.md) |
+| `auth-server` | RFC 内网认证机 | `nft-auth-server` + 配置/数据/日志目录 + `/etc/systemd/system/nft-auth-server.service`（不 enable/start）。详见 [docs/deploy-auth-server.md](./docs/deploy-auth-server.md) |
 | `receive` | 国外 VPS / 未来 po0 | `nft-auth-receive` + `nftauth` 用户 + `inbox` 目录；打印 forced command 示例（按需 SSH 启动，无常驻服务）。详见 [docs/deploy-receive.md](./docs/deploy-receive.md) |
 | `puller` | 调试 / 兼容 | `nft-auth-puller` + `puller.json` / `puller-file.json` 示例（默认 export，不启用 nft/apply） |
 | `all` | 仅开发/测试 | 安装三个二进制（不建议生产默认） |
@@ -620,14 +620,15 @@ git push -u origin main          # 当前本地分支可能是 master，按需 g
 > 推送前务必 `bash scripts/secret-scan.sh` 确认无真实密钥/IP 泄露；`dist/`、`*.local.json`、
 > 私钥等已被 `.gitignore` 忽略。
 
-仓库公开发布后，可用一键安装（**需仓库可被 curl 访问**）：
+仓库公开并发布 GitHub Release 后，可用一键安装（下载 release tarball，再调用包内 `install.sh`）：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/misaka-cpu/nft-auth-whitelist/main/install.sh | bash -s -- --role auth-server
-curl -fsSL https://raw.githubusercontent.com/misaka-cpu/nft-auth-whitelist/main/install.sh | bash -s -- --role receive
+curl -fsSL https://raw.githubusercontent.com/misaka-cpu/nft-auth-whitelist/main/scripts/install-release.sh | sudo bash -s -- --role auth-server
+curl -fsSL https://raw.githubusercontent.com/misaka-cpu/nft-auth-whitelist/main/scripts/install-release.sh | sudo bash -s -- --role receive
 ```
 
-（private 仓库的一键安装需自带凭据；离线则用 `scripts/package.sh` 生成的发布包。）
+更谨慎的方式是手动下载 release tarball 和 `.sha256` 后再运行包内 `sudo ./install.sh --role ...`。
+完整公开部署流程见 [docs/public-deployment.md](./docs/public-deployment.md)。
 
 ### 构建 / 打包 / 自检
 
@@ -636,7 +637,7 @@ bash scripts/build.sh                  # 三个二进制 -> dist/
 bash scripts/build.sh --all-platforms  # 另出 dist/linux-amd64、dist/linux-arm64
 bash scripts/package.sh                # 生成 dist/nft-auth-whitelist-linux-{amd64,arm64}.tar.gz
 bash scripts/secret-scan.sh            # 扫描密钥/令牌/私钥泄露（example 占位符放行）
-bash scripts/check.sh                  # gofmt + test + vet + build + build.sh + secret-scan + test-install + test-preflight
+bash scripts/check.sh                  # gofmt + test + vet + build + package + secret-scan + install/preflight checks
 ```
 
 发布包内含 `bin/`、`configs/`、`docs/`、`scripts/preflight-*.sh`、`install.sh`、
@@ -650,7 +651,7 @@ bash scripts/check.sh                  # gofmt + test + vet + build + build.sh +
 
 ## 21. Production po0 shadow deployment（v0.6.0）
 
-真实国内 po0 接入前先做 shadow deployment：日本 RFC auth-server 自动 SSH push 到真实 po0，
+真实国内 po0 接入前先做 shadow deployment：RFC 内网机器 auth-server 自动 SSH push 到真实 po0，
 po0 的 `nft-auth-receive` forced command 只写 `allow.txt` / `pulled-state.json` /
 `receive-audit.log`。此阶段**不启用 nft guard、不执行 `-apply`、不修改主项目、不修改
 `/etc/nat.toml`、不拦截 SSH 2222**。完整流程见
@@ -661,8 +662,8 @@ po0 的 `nft-auth-receive` forced command 只写 `allow.txt` / `pulled-state.jso
 三选一获取项目：
 
 ```bash
-# curl 一键安装（仓库可访问时）
-curl -fsSL https://raw.githubusercontent.com/misaka-cpu/nft-auth-whitelist/main/install.sh | sudo bash -s -- --role receive
+# curl 一键安装（公开 release 可访问时）
+curl -fsSL https://raw.githubusercontent.com/misaka-cpu/nft-auth-whitelist/main/scripts/install-release.sh | sudo bash -s -- --role receive
 
 # git clone
 git clone git@github.com:misaka-cpu/nft-auth-whitelist.git
@@ -684,7 +685,7 @@ sudo vi /etc/nft-auth-whitelist/receive.json
 
 确认：
 
-- `hmac_secret` 与日本 RFC auth-server 一致。
+- `hmac_secret` 与 RFC 内网机器 auth-server 一致。
 - `audit_log` 指向 `/var/log/nft-auth-whitelist/receive-audit.log`。
 - `nft.enabled=false`。
 - `mode=export`。
@@ -713,7 +714,7 @@ bash scripts/preflight-receive.sh --fix-perms
 `/var/lib/nft-auth-whitelist/inbox`、`/var/log/nft-auth-whitelist`，不会修改
 `authorized_keys`。
 
-### E. 在日本 RFC 上新增第二个 push target
+### E. 在 RFC 内网机器上新增第二个 push target
 
 在 `/etc/nft-auth-whitelist/server.json` 的 `push.targets` 中新增 `po0-shadow`，保持：
 
@@ -722,7 +723,7 @@ bash scripts/preflight-receive.sh --fix-perms
 - `strict_host_key_checking=true`。
 - `known_hosts_file` 指向已固定 po0 指纹的 known_hosts。
 
-### F. 在日本 RFC 上运行 push target preflight
+### F. 在 RFC 内网机器上运行 push target preflight
 
 ```bash
 bash scripts/preflight-push-target.sh --target po0-shadow --ssh-test
@@ -733,7 +734,7 @@ bash scripts/preflight-push-target.sh --target po0-shadow --ssh-test
 
 ### G. 浏览器认证并检查 Push results
 
-访问日本 RFC 认证页，确认页面中的 Push results 里 `po0-shadow` 为 ok。push 失败不影响认证记录，
+访问 RFC 内网机器认证页，确认页面中的 Push results 里 `po0-shadow` 为 ok。push 失败不影响认证记录，
 也不会清空旧 `allow.txt`。
 
 ### H. 在真实 po0 查看旁路产物

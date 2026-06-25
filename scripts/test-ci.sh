@@ -26,7 +26,8 @@ fi
 for want in \
   "actions/upload-artifact@v4" \
   "name: nft-auth-whitelist-tarballs" \
-  "path: dist/nft-auth-whitelist-linux-*.tar.gz" \
+  "dist/nft-auth-whitelist-linux-*.tar.gz" \
+  "dist/nft-auth-whitelist-linux-*.tar.gz.sha256" \
   "if-no-files-found: error"; do
   if contains "$want"; then
     ok "workflow contains $want"

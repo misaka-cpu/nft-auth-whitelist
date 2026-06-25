@@ -37,6 +37,7 @@ for arch in amd64 arm64; do
     scripts/preflight-receive.sh \
     scripts/preflight-push-target.sh \
     scripts/check.sh \
+    scripts/install-release.sh \
     scripts/test-install.sh \
     scripts/test-preflight.sh \
     scripts/test-local-shadow.sh \
@@ -49,9 +50,10 @@ for arch in amd64 arm64; do
 
   tarball="$DIST/$NAME-linux-$arch.tar.gz"
   tar -C "$DIST/stage-$arch" -czf "$tarball" "$NAME"
+  (cd "$DIST" && sha256sum "$(basename "$tarball")" > "$(basename "$tarball").sha256")
   rm -rf "$DIST/stage-$arch"
   echo "==> wrote $tarball"
 done
 
 echo "==> done."
-ls -l "$DIST"/*.tar.gz
+ls -l "$DIST"/*.tar.gz "$DIST"/*.tar.gz.sha256

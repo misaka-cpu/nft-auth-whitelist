@@ -20,5 +20,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: nft-auth-whitelist-tarballs
-          path: dist/nft-auth-whitelist-linux-*.tar.gz
+          path: |
+            dist/nft-auth-whitelist-linux-*.tar.gz
+            dist/nft-auth-whitelist-linux-*.tar.gz.sha256
           if-no-files-found: error

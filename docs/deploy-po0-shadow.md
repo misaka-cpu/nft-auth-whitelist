@@ -1,6 +1,6 @@
 # Production po0 shadow deployment
 
-本文用于把真实国内 po0 先接成 **shadow mode**：日本 RFC auth-server 通过 SSH push 触发
+本文用于把真实国内 po0 先接成 **shadow mode**：RFC 内网机器 auth-server 通过 SSH push 触发
 po0 上的 `nft-auth-receive` forced command，接收端只落地 `allow.txt`、
 `pulled-state.json` 和 `receive-audit.log`，不影响现有转发业务。
 
@@ -9,7 +9,7 @@ po0 上的 `nft-auth-receive` forced command，接收端只落地 `allow.txt`、
 shadow mode 是只观察、不拦截的部署方式：
 
 ```text
-日本 RFC auth-server
+RFC 内网机器 auth-server
   -> SSH stdin push
   -> 国内 po0 nft-auth-receive forced command
   -> /var/lib/nft-auth-whitelist/allow.txt
@@ -51,7 +51,7 @@ bash scripts/preflight-receive.sh
 
 `receive.json` 必须满足：
 
-- `hmac_secret` 与日本 RFC auth-server 一致，且不是示例占位符。
+- `hmac_secret` 与 RFC 内网机器 auth-server 一致，且不是示例占位符。
 - `mode` 为 `export`。
 - `nft.enabled=false`。
 - `audit_log` 指向 `/var/log/nft-auth-whitelist/receive-audit.log`。
@@ -62,7 +62,7 @@ bash scripts/preflight-receive.sh
 command="/usr/local/bin/nft-auth-receive -config /etc/nft-auth-whitelist/receive.json",no-pty,no-agent-forwarding,no-X11-forwarding,no-port-forwarding ssh-ed25519 AAAA... nft-auth-push
 ```
 
-在日本 RFC 上配置第二个 push target，例如 `po0-shadow`，并保持：
+在 RFC 内网机器上配置第二个 push target，例如 `po0-shadow`，并保持：
 
 - `strict_host_key_checking=true`。
 - `known_hosts_file` 已固定真实 po0 主机指纹。
@@ -80,7 +80,7 @@ forced command 没生效，必须停止接入。
 
 ## 影子验证
 
-浏览器访问日本 RFC 认证页，确认页面的 Push results 中 `po0-shadow` 为 ok。随后在真实 po0：
+浏览器访问 RFC 内网机器认证页，确认页面的 Push results 中 `po0-shadow` 为 ok。随后在真实 po0：
 
 ```bash
 cat /var/lib/nft-auth-whitelist/allow.txt
@@ -92,7 +92,7 @@ tail -n 50 /var/log/nft-auth-whitelist/receive-audit.log
 
 ## 回滚方式
 
-- 在日本 RFC `server.json` 中删除或禁用 `po0-shadow` target，然后重启 auth-server。
+- 在 RFC 内网机器 `server.json` 中删除或禁用 `po0-shadow` target，然后重启 auth-server。
 - 或从真实 po0 的 `~nftauth/.ssh/authorized_keys` 中移除对应 push 公钥。
 - 如需保留审计，可只移动旧 `allow.txt` / `pulled-state.json` / audit log；不需要改主项目。
 - 不需要修改 `/etc/nat.toml`，也不需要清理 nft 规则，因为本流程没有创建或应用任何 nft 规则。

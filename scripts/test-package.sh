@@ -18,6 +18,7 @@ required_paths=(
   "configs/puller-file.example.json"
   "configs/receive.example.json"
   "docs/deploy-checklist.md"
+  "docs/public-deployment.md"
   "docs/deploy-auth-server.md"
   "docs/deploy-po0-shadow.md"
   "docs/deploy-receive.md"
@@ -28,6 +29,7 @@ required_paths=(
   "scripts/preflight-receive.sh"
   "scripts/preflight-push-target.sh"
   "scripts/check.sh"
+  "scripts/install-release.sh"
   "scripts/test-install.sh"
   "scripts/test-preflight.sh"
   "scripts/test-local-shadow.sh"
@@ -44,6 +46,11 @@ for arch in amd64 arm64; do
   if [[ ! -f "$tarball" ]]; then
     bad "$tarball exists"
     continue
+  fi
+  if [[ -f "$tarball.sha256" ]]; then
+    ok "$tarball.sha256 exists"
+  else
+    bad "$tarball.sha256 exists"
   fi
   list="$(mktemp)"
   if tar -tzf "$tarball" > "$list"; then

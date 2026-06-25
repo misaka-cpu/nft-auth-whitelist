@@ -360,4 +360,4 @@ esac
 echo
 log "done."
 note "Reminders: set strong secrets in $CONFIG_DIR/*.json; deploy auth-server behind HTTPS;"
-note "keep receive keys as forced commands; nft/--apply stay OFF; do not block SSH port 2222."
+note "keep receive keys as forced commands; nft/--apply stay OFF; do not block your SSH management port."

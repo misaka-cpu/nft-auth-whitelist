@@ -107,12 +107,51 @@ func TestDeployChecklistCoversDeliveryModes(t *testing.T) {
 		"First-time validation",
 		"Conditional revalidation",
 		"Routine release checks",
-		"RFC JP auth-server browser login",
+		"RFC internal machine auth-server browser login",
 		"nft-auth-receive",
 		"Do not run nft",
 	} {
 		if !strings.Contains(checklist, want) {
 			t.Errorf("deploy checklist must contain %q", want)
+		}
+	}
+}
+
+func TestPublicDeploymentGuideExists(t *testing.T) {
+	guide := readRepoFile(t, "docs/public-deployment.md")
+	for _, want := range []string{
+		"RFC 内网机器",
+		"Cloudflare Access",
+		"CF-Connecting-IP",
+		"install-release.sh",
+		"nftables-nat-rust-enhanced",
+		"target guard",
+	} {
+		if !strings.Contains(guide, want) {
+			t.Errorf("public deployment guide must contain %q", want)
+		}
+	}
+}
+
+func TestPublicDocsUseGenericRFCInternalMachine(t *testing.T) {
+	for _, name := range []string{
+		"README.md",
+		"docs/deploy-checklist.md",
+		"docs/deploy-po0-shadow.md",
+		"docs/real-host-ssh-push-checklist.md",
+		"docs/public-deployment.md",
+	} {
+		body := readRepoFile(t, name)
+		for _, forbidden := range []string{
+			"RFC JP",
+			"RFC 日本",
+			"日本 RFC",
+			"日本机",
+			"日本认证机",
+		} {
+			if strings.Contains(body, forbidden) {
+				t.Errorf("%s should use generic RFC internal machine wording, found %q", name, forbidden)
+			}
 		}
 	}
 }

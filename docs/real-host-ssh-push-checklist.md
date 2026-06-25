@@ -1,6 +1,6 @@
 # Real-host SSH Push Checklist
 
-Use this only after local checks pass and after the reverse-proxy / Cloudflare Access client-IP path has already been validated. This checklist is for the first real RFC JP -> po0/CO shadow push test.
+Use this only after local checks pass and after the reverse-proxy / Cloudflare Access client-IP path has already been validated. This checklist is for the first real RFC internal machine -> po0/CO shadow push test.
 
 It does not deploy automatically, does not start services automatically, does not edit firewall rules, and does not run nft.
 
@@ -18,7 +18,7 @@ It does not deploy automatically, does not start services automatically, does no
 - [ ] Do not use passwords.
 - [ ] Do not paste host passwords, root passwords, Cloudflare tokens, pull tokens, HMAC secrets, cookies, or private keys into chat.
 - [ ] Do not reuse a personal admin key for the forced-command receiver.
-- [ ] Keep the push private key on RFC JP under `/etc/nft-auth-whitelist/ssh/` with `0600` or `0400` permissions.
+- [ ] Keep the push private key on the RFC internal machine under `/etc/nft-auth-whitelist/ssh/` with `0600` or `0400` permissions.
 - [ ] Remove the temporary public key from the receive host after the test if it is not kept for production.
 
 ## Receive host preparation
@@ -27,7 +27,7 @@ On po0/CO receive host:
 
 - [ ] Install or update only the receive role: `sudo ./install.sh --role receive`.
 - [ ] Edit `/etc/nft-auth-whitelist/receive.json` manually.
-- [ ] Confirm `hmac_secret` matches RFC JP auth-server and is not a sample value.
+- [ ] Confirm `hmac_secret` matches the RFC internal machine auth-server and is not a sample value.
 - [ ] Confirm `mode=export` and `nft.enabled=false`.
 - [ ] Confirm the output paths are the expected shadow paths:
   - `/var/lib/nft-auth-whitelist/allow.txt`
@@ -39,9 +39,9 @@ On po0/CO receive host:
 - [ ] Run `sudo bash scripts/preflight-receive.sh --config /etc/nft-auth-whitelist/receive.json --user nftauth`.
 - [ ] Stop and ask if the preflight reports any FAIL.
 
-## RFC JP push-side preparation
+## RFC internal machine push-side preparation
 
-On RFC JP auth-server host:
+On the RFC internal machine auth-server host:
 
 - [ ] Put the temporary private key in `/etc/nft-auth-whitelist/ssh/`.
 - [ ] Pin the receive host key in `known_hosts`; do not rely on interactive first-connect trust.
@@ -56,7 +56,7 @@ On RFC JP auth-server host:
 
 Only after both preflights pass:
 
-- [ ] Generate or fetch signed `allow.json` from RFC JP using the bearer token in an HTTP header, not in a URL.
+- [ ] Generate or fetch signed `allow.json` from the RFC internal machine using the bearer token in an HTTP header, not in a URL.
 - [ ] Pipe it over SSH stdin to the receive host using the temporary key.
 - [ ] Expect `ok entries=N output=/var/lib/nft-auth-whitelist/allow.txt`.
 - [ ] On the receive host, inspect:
@@ -70,7 +70,7 @@ Only after both preflights pass:
 
 Only after one-shot shadow validation succeeds:
 
-- [ ] Enable only the reviewed push target in RFC JP `server.json`.
+- [ ] Enable only the reviewed push target in the RFC internal machine `server.json`.
 - [ ] Restart auth-server only after reviewing the config diff.
 - [ ] Log in through the already-validated browser auth path.
 - [ ] Confirm the page's Push results show `po0-shadow` as ok.
@@ -89,7 +89,7 @@ Only after one-shot shadow validation succeeds:
 
 ## Rollback
 
-- Disable or remove the RFC JP push target from `server.json`, then restart auth-server only after reviewing the config.
+- Disable or remove the RFC internal machine push target from `server.json`, then restart auth-server only after reviewing the config.
 - Remove the temporary public key from the receive host `authorized_keys`.
 - Keep audit logs if investigation is needed.
 - No nft cleanup is required because this checklist never applies nft rules.
