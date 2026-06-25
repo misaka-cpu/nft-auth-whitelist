@@ -11,11 +11,20 @@ import (
 	"github.com/misaka-cpu/nft-auth-whitelist/internal/sshpush"
 )
 
+// pushRequestBudget keeps synchronous SSH push safely below the auth-server
+// HTTP WriteTimeout (15s), while preserving per-target push results on the
+// success page.
+const pushRequestBudget = 12 * time.Second
+
 // doPush builds a freshly signed allow.json (identical signing to /allow.json)
-// and pushes it to every configured target over SSH, synchronously, one at a
-// time, each with its own timeout. It returns the per-target results and NEVER
-// returns an error: a push problem must not break the authentication flow.
+// and pushes it to configured targets over SSH within a bounded request budget.
 func (s *server) doPush(now time.Time) []sshpush.Result {
+	return s.doPushWithBudget(now, pushRequestBudget)
+}
+
+// doPushWithBudget returns per-target results and NEVER returns an error: a
+// push problem must not break the authentication flow.
+func (s *server) doPushWithBudget(now time.Time, budget time.Duration) []sshpush.Result {
 	// Reuse the exact same envelope-building + signing path as /allow.json so the
 	// receiver verifies it with the same hmac_secret.
 	env, err := s.store.BuildEnvelope(now, envelopeTTL, []byte(s.cfg.HMACSecret))
@@ -30,7 +39,8 @@ func (s *server) doPush(now time.Time) []sshpush.Result {
 	}
 
 	entries := len(env.Entries)
-	timeout := time.Duration(s.cfg.Push.TimeoutSeconds) * time.Second
+	targetTimeout := time.Duration(s.cfg.Push.TimeoutSeconds) * time.Second
+	deadline := time.Now().Add(budget)
 
 	results := make([]sshpush.Result, 0, len(s.cfg.Push.Targets))
 	for _, tc := range s.cfg.Push.Targets {
@@ -42,6 +52,28 @@ func (s *server) doPush(now time.Time) []sshpush.Result {
 			IdentityFile:          tc.IdentityFile,
 			StrictHostKeyChecking: tc.StrictHostKey(),
 			KnownHostsFile:        tc.KnownHostsFile,
+		}
+
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			r := sshpush.Result{
+				Name:       t.Name,
+				Host:       t.Host,
+				Port:       t.Port,
+				OK:         false,
+				ExitStatus: -1,
+				Reason:     "push budget exhausted",
+			}
+			s.audit.Log(audit.ActionPushFail, audit.ResultWarn, map[string]interface{}{
+				"target": t.Name, "host": t.Host, "port": t.Port,
+				"duration_ms": r.DurationMs, "reason": r.Reason, "exit_status": r.ExitStatus,
+			})
+			results = append(results, r)
+			continue
+		}
+		timeout := targetTimeout
+		if remaining < timeout {
+			timeout = remaining
 		}
 
 		s.audit.Log(audit.ActionPushStart, audit.ResultOK, map[string]interface{}{

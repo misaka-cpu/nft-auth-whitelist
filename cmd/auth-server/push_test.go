@@ -2,12 +2,14 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/misaka-cpu/nft-auth-whitelist/internal/config"
 )
@@ -121,5 +123,53 @@ func TestPushNeverLeaksSecrets(t *testing.T) {
 		if strings.Contains(rec.Body.String(), secret) {
 			t.Fatalf("page must not contain secret %q", secret)
 		}
+	}
+}
+
+func TestPushStopsWhenRequestBudgetIsExhausted(t *testing.T) {
+	countFile := filepath.Join(t.TempDir(), "push-count")
+	fake := writeFakeSSH(t, fmt.Sprintf(`printf x >> %q
+while :; do :; done`, countFile))
+	srv, _ := pushServer(t, fake)
+	srv.cfg.Push.TimeoutSeconds = 1
+	srv.cfg.Push.Targets = []config.PushTarget{
+		{
+			Name:         "slow-1",
+			User:         "nftauth",
+			Host:         "203.0.113.10",
+			Port:         2222,
+			IdentityFile: "/root/.ssh/nft_auth_push_test",
+		},
+		{
+			Name:         "slow-2",
+			User:         "nftauth",
+			Host:         "203.0.113.11",
+			Port:         2222,
+			IdentityFile: "/root/.ssh/nft_auth_push_test",
+		},
+	}
+
+	start := time.Now()
+	results := srv.doPushWithBudget(time.Now(), 100*time.Millisecond)
+	elapsed := time.Since(start)
+
+	if elapsed > 750*time.Millisecond {
+		t.Fatalf("push exceeded request budget by too much: %s", elapsed)
+	}
+	if len(results) != 2 {
+		t.Fatalf("got %d results, want 2", len(results))
+	}
+	if results[0].OK || !strings.Contains(results[0].Reason, "timeout after") {
+		t.Fatalf("first target should time out within the total budget, got %+v", results[0])
+	}
+	if results[1].OK || results[1].Reason != "push budget exhausted" {
+		t.Fatalf("second target should be skipped after budget exhaustion, got %+v", results[1])
+	}
+	b, err := os.ReadFile(countFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(b) != "x" {
+		t.Fatalf("fake ssh should run once, ran %d times", len(b))
 	}
 }
