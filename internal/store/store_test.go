@@ -1,6 +1,8 @@
 package store
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -131,5 +133,60 @@ func TestPersistReload(t *testing.T) {
 	}
 	if s2.Count() != 1 {
 		t.Fatalf("reloaded store should have 1 entry, got %d", s2.Count())
+	}
+}
+
+func TestRecordRefreshDoesNotRewritePersistedFile(t *testing.T) {
+	dir := t.TempDir()
+	s, err := New(dir, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
+	if _, err := s.Record("1.2.3.4/32", "1.2.3.4", "web_auth", now, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "entries.json")
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.Record("1.2.3.4/32", "1.2.3.4", "web_auth", now.Add(time.Minute), time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Fatal("pure refresh should update memory without rewriting persisted store")
+	}
+	if got := s.Snapshot(now.Add(time.Minute))[0].HitCount; got != 2 {
+		t.Fatalf("in-memory hit_count = %d, want 2", got)
+	}
+}
+
+func TestRecordRefreshPersistsExpiredEntryRevival(t *testing.T) {
+	dir := t.TempDir()
+	s, err := New(dir, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
+	if _, err := s.Record("1.2.3.4/32", "1.2.3.4", "web_auth", now, time.Second); err != nil {
+		t.Fatal(err)
+	}
+	later := now.Add(2 * time.Second)
+	if _, err := s.Record("1.2.3.4/32", "1.2.3.4", "web_auth", later, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+
+	reloaded, err := New(dir, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reloaded.Snapshot(later); len(got) != 1 {
+		t.Fatalf("revived entry must be persisted, got %d entries after reload", len(got))
 	}
 }
