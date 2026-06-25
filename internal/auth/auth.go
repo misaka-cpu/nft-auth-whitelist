@@ -1,16 +1,12 @@
 // Package auth provides constant-time credential checks (Basic Auth + bearer
-// token). It also keeps a small compatibility wrapper for the older real-IP
-// extractor API; new code should use internal/clientip directly.
+// token).
 package auth
 
 import (
 	"crypto/sha256"
 	"crypto/subtle"
-	"net"
 	"net/http"
 	"strings"
-
-	"github.com/misaka-cpu/nft-auth-whitelist/internal/clientip"
 )
 
 // ConstantTimeEqual compares two strings in constant time. The inputs are first
@@ -43,35 +39,4 @@ func CheckBearer(r *http.Request, token string) bool {
 		return false
 	}
 	return ConstantTimeEqual(strings.TrimPrefix(h, prefix), token)
-}
-
-// RealIPExtractor resolves the client source IP using the legacy single-header
-// API. It is retained for compatibility with older internal callers.
-type RealIPExtractor struct {
-	inner *clientip.Extractor
-}
-
-// NewRealIPExtractor builds an extractor. trustedProxies may contain bare IPs or
-// CIDRs; an empty header or empty trusted list disables header trust entirely.
-func NewRealIPExtractor(trustedProxies []string, header string) *RealIPExtractor {
-	headers := []string{}
-	if strings.TrimSpace(header) != "" {
-		headers = []string{header}
-	}
-	return &RealIPExtractor{
-		inner: clientip.New(clientip.Config{
-			TrustedProxyCIDRs: trustedProxies,
-			Headers:           headers,
-		}),
-	}
-}
-
-// ClientIP returns the source IP for r. It only consults the configured real-IP
-// header when the direct peer is a trusted proxy. Any failure falls back to the
-// direct peer IP.
-func (e *RealIPExtractor) ClientIP(r *http.Request) net.IP {
-	if e == nil || e.inner == nil {
-		return nil
-	}
-	return e.inner.Extract(r).ClientIP
 }

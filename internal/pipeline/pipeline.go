@@ -162,7 +162,7 @@ func dedup(sorted []string) []string {
 // reader never observes a half-written or empty file in place of the old one.
 func AtomicWrite(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
 	tmp, err := os.CreateTemp(dir, ".tmp-*")

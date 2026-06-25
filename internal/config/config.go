@@ -7,6 +7,8 @@ import (
 	"net"
 	"os"
 	"strings"
+
+	"github.com/misaka-cpu/nft-auth-whitelist/internal/clientip"
 )
 
 // RateLimit controls login-failure throttling on the auth-server.
@@ -174,7 +176,7 @@ func LoadServerConfig(path string) (*ServerConfig, error) {
 
 // DefaultClientIPHeaders returns the built-in trusted proxy header priority.
 func DefaultClientIPHeaders() []string {
-	return []string{"CF-Connecting-IP", "X-Real-IP", "X-Forwarded-For"}
+	return clientip.DefaultHeaders()
 }
 
 // EffectiveTrustedProxyCIDRs returns new trusted proxy CIDRs plus legacy

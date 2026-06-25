@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/misaka-cpu/nft-auth-whitelist/internal/clientip"
 )
 
 const (
@@ -244,6 +246,26 @@ func TestEffectiveClientIPHeadersDefaultForNewTrustedProxyCIDRs(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("headers = %#v, want %#v", got, want)
 		}
+	}
+}
+
+func TestDefaultClientIPHeadersDelegatesToClientIPPackage(t *testing.T) {
+	got := DefaultClientIPHeaders()
+	want := clientip.DefaultHeaders()
+	if len(got) != len(want) {
+		t.Fatalf("headers = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("headers = %#v, want %#v", got, want)
+		}
+	}
+	body, err := os.ReadFile("config.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), `return []string{"CF-Connecting-IP", "X-Real-IP", "X-Forwarded-For"}`) {
+		t.Fatal("DefaultClientIPHeaders must delegate to clientip.DefaultHeaders instead of duplicating the list")
 	}
 }
 

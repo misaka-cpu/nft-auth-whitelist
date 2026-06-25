@@ -31,3 +31,18 @@ func TestWriteOutputsUsesPrivateFileModes(t *testing.T) {
 		}
 	}
 }
+
+func TestAtomicWriteCreatesPrivateDirectories(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "nested", "private")
+	path := filepath.Join(dir, "allow.txt")
+	if err := AtomicWrite(path, []byte("1.2.3.4/32\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o700 {
+		t.Fatalf("created dir mode = %o, want 700", info.Mode().Perm())
+	}
+}
