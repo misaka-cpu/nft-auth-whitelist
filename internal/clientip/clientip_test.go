@@ -88,14 +88,28 @@ func TestInvalidCFConnectingIPFallsThrough(t *testing.T) {
 	}
 }
 
-func TestXForwardedForUsesFirstValidIP(t *testing.T) {
+func TestXForwardedForUsesRightmostUntrustedIP(t *testing.T) {
 	e := New(Config{TrustedProxyCIDRs: []string{"127.0.0.1/32"}})
 	r := requestWithRemote("127.0.0.1:12345")
-	r.Header.Set("X-Forwarded-For", "1.2.3.4, 5.6.7.8")
+	r.Header.Set("X-Forwarded-For", "9.9.9.9, 5.6.7.8")
+
+	got := e.Extract(r)
+	if got.ClientIP.String() != "5.6.7.8" {
+		t.Fatalf("client ip = %s, want rightmost untrusted X-Forwarded-For IP", got.ClientIP)
+	}
+	if got.Source != SourceXForwardedFor {
+		t.Fatalf("source = %s, want %s", got.Source, SourceXForwardedFor)
+	}
+}
+
+func TestXForwardedForSkipsTrustedProxyChain(t *testing.T) {
+	e := New(Config{TrustedProxyCIDRs: []string{"127.0.0.1/32", "10.0.0.0/8"}})
+	r := requestWithRemote("127.0.0.1:12345")
+	r.Header.Set("X-Forwarded-For", "1.2.3.4, 10.0.0.2")
 
 	got := e.Extract(r)
 	if got.ClientIP.String() != "1.2.3.4" {
-		t.Fatalf("client ip = %s, want first X-Forwarded-For IP", got.ClientIP)
+		t.Fatalf("client ip = %s, want first non-trusted X-Forwarded-For IP", got.ClientIP)
 	}
 	if got.Source != SourceXForwardedFor {
 		t.Fatalf("source = %s, want %s", got.Source, SourceXForwardedFor)
@@ -110,6 +124,35 @@ func TestXForwardedForSkipsInvalidParts(t *testing.T) {
 	got := e.Extract(r)
 	if got.ClientIP.String() != "5.6.7.8" {
 		t.Fatalf("client ip = %s, want first valid X-Forwarded-For IP", got.ClientIP)
+	}
+}
+
+func TestPrivateHeaderIPFallsThrough(t *testing.T) {
+	e := New(Config{TrustedProxyCIDRs: []string{"127.0.0.1/32"}})
+	r := requestWithRemote("127.0.0.1:12345")
+	r.Header.Set("CF-Connecting-IP", "10.1.2.3")
+	r.Header.Set("X-Real-IP", "5.6.7.8")
+
+	got := e.Extract(r)
+	if got.ClientIP.String() != "5.6.7.8" {
+		t.Fatalf("client ip = %s, want X-Real-IP fallback", got.ClientIP)
+	}
+	if got.Source != SourceXRealIP {
+		t.Fatalf("source = %s, want %s", got.Source, SourceXRealIP)
+	}
+}
+
+func TestXForwardedForPrivateClientFallsBack(t *testing.T) {
+	e := New(Config{TrustedProxyCIDRs: []string{"127.0.0.1/32"}})
+	r := requestWithRemote("127.0.0.1:12345")
+	r.Header.Set("X-Forwarded-For", "1.2.3.4, 10.1.2.3")
+
+	got := e.Extract(r)
+	if got.ClientIP.String() != "127.0.0.1" {
+		t.Fatalf("client ip = %s, want RemoteAddr fallback", got.ClientIP)
+	}
+	if got.Source != SourceRemoteAddr {
+		t.Fatalf("source = %s, want %s", got.Source, SourceRemoteAddr)
 	}
 }
 

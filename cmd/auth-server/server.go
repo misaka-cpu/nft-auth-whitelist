@@ -83,11 +83,6 @@ func (s *server) handleRoot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Opportunistic purge of expired entries.
-	for _, cidr := range s.store.Purge(s.now()) {
-		s.audit.Log(audit.ActionEntryExpire, audit.ResultOK, map[string]interface{}{"cidr": cidr})
-	}
-
 	resolved := s.client.Extract(r)
 	peer := ipString(resolved.RemoteIP, clientHost(r))
 	rateKey := ipString(resolved.ClientIP, peer)
@@ -114,6 +109,13 @@ func (s *server) handleRoot(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("WWW-Authenticate", `Basic realm="nft-auth-whitelist"`)
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
+	}
+
+	// Opportunistic purge of expired entries after authentication. The
+	// background ticker also purges periodically; unauthenticated requests must
+	// not be able to force a store scan/write.
+	for _, cidr := range s.store.Purge(s.now()) {
+		s.audit.Log(audit.ActionEntryExpire, audit.ResultOK, map[string]interface{}{"cidr": cidr})
 	}
 
 	// Authenticated. The recorded IP is ALWAYS the request source IP; any

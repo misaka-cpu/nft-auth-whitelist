@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/misaka-cpu/nft-auth-whitelist/internal/audit"
 	"github.com/misaka-cpu/nft-auth-whitelist/internal/config"
@@ -118,6 +119,28 @@ func TestRootBasicAuthFailure(t *testing.T) {
 	}
 }
 
+func TestRootBasicAuthFailureDoesNotPurgeExpiredEntries(t *testing.T) {
+	srv, _ := testServer(t, nil)
+	now := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
+	old := now.Add(-2 * time.Minute)
+	if _, err := srv.store.Record("1.2.3.4/32", "1.2.3.4", "test", old, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	srv.now = func() time.Time { return now }
+
+	rec := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.RemoteAddr = "5.6.7.8:1111"
+	r.SetBasicAuth("admin", "wrong")
+	srv.Handler().ServeHTTP(rec, r)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("want 401 on bad password, got %d", rec.Code)
+	}
+	if srv.store.Count() != 1 {
+		t.Fatalf("unauthenticated request must not purge expired entries, count=%d", srv.store.Count())
+	}
+}
+
 func TestExpand24DisabledByDefault(t *testing.T) {
 	srv, _ := testServer(t, nil) // AllowCIDRExpandIPv4 defaults false
 	rec := httptest.NewRecorder()
@@ -186,6 +209,22 @@ func TestAllowJSONRequiresBearer(t *testing.T) {
 	srv.Handler().ServeHTTP(rec, r)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("allow.json must require bearer, got %d", rec.Code)
+	}
+}
+
+func TestAllowExportsSetNoStore(t *testing.T) {
+	srv, _ := testServer(t, nil)
+	for _, path := range []string{"/allow.json", "/allow.txt"} {
+		rec := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodGet, path, nil)
+		r.Header.Set("Authorization", "Bearer pull-tok")
+		srv.Handler().ServeHTTP(rec, r)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s want 200, got %d", path, rec.Code)
+		}
+		if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+			t.Fatalf("%s Cache-Control = %q, want no-store", path, got)
+		}
 	}
 }
 

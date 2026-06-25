@@ -39,6 +39,8 @@ func (f *failureLimiter) blocked(peer string, now time.Time) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
+	f.cleanupExpiredLocked(now)
+
 	b := f.buckets[peer]
 	if b == nil || now.Sub(b.windowStart) >= time.Minute {
 		b = &bucket{windowStart: now, count: 0}
@@ -46,4 +48,12 @@ func (f *failureLimiter) blocked(peer string, now time.Time) bool {
 	}
 	b.count++
 	return b.count > f.max
+}
+
+func (f *failureLimiter) cleanupExpiredLocked(now time.Time) {
+	for peer, b := range f.buckets {
+		if now.Sub(b.windowStart) >= time.Minute {
+			delete(f.buckets, peer)
+		}
+	}
 }

@@ -123,7 +123,7 @@ func (e *Extractor) Extract(r *http.Request) Result {
 		source := sourceForHeader(header)
 		var ip net.IP
 		if source == SourceXForwardedFor {
-			ip = parseXForwardedFor(value)
+			ip = e.parseXForwardedFor(value)
 		} else {
 			ip = parseSingleIP(value)
 		}
@@ -150,14 +150,39 @@ func sourceForHeader(header string) string {
 }
 
 func parseSingleIP(value string) net.IP {
-	return net.ParseIP(strings.TrimSpace(value))
+	ip := net.ParseIP(strings.TrimSpace(value))
+	if !usableHeaderIP(ip) {
+		return nil
+	}
+	return ip
 }
 
-func parseXForwardedFor(value string) net.IP {
-	for _, part := range strings.Split(value, ",") {
-		if ip := net.ParseIP(strings.TrimSpace(part)); ip != nil {
-			return ip
+func (e *Extractor) parseXForwardedFor(value string) net.IP {
+	parts := strings.Split(value, ",")
+	for i := len(parts) - 1; i >= 0; i-- {
+		ip := net.ParseIP(strings.TrimSpace(parts[i]))
+		if ip == nil {
+			continue
 		}
+		if e.peerTrusted(ip) {
+			continue
+		}
+		if !usableHeaderIP(ip) {
+			return nil
+		}
+		return ip
 	}
 	return nil
+}
+
+func usableHeaderIP(ip net.IP) bool {
+	if ip == nil {
+		return false
+	}
+	return !ip.IsUnspecified() &&
+		!ip.IsLoopback() &&
+		!ip.IsPrivate() &&
+		!ip.IsMulticast() &&
+		!ip.IsLinkLocalUnicast() &&
+		!ip.IsLinkLocalMulticast()
 }

@@ -67,8 +67,8 @@ func NewRealIPExtractor(trustedProxies []string, header string) *RealIPExtractor
 }
 
 // ClientIP returns the source IP for r. It only consults the configured real-IP
-// header when the direct peer is a trusted proxy; for X-Forwarded-For it takes
-// the first (leftmost) value. Any failure falls back to the direct peer IP.
+// header when the direct peer is a trusted proxy. Any failure falls back to the
+// direct peer IP.
 func (e *RealIPExtractor) ClientIP(r *http.Request) net.IP {
 	if e == nil || e.inner == nil {
 		return nil

@@ -18,6 +18,7 @@ func (s *server) handleAllowJSON(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
+	w.Header().Set("Cache-Control", "no-store")
 	env, err := s.store.BuildEnvelope(s.now(), envelopeTTL, []byte(s.cfg.HMACSecret))
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -42,6 +43,7 @@ func (s *server) handleAllowTxt(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
+	w.Header().Set("Cache-Control", "no-store")
 	snap := s.store.Snapshot(s.now())
 	lines := make([]string, 0, len(snap))
 	for _, e := range snap {

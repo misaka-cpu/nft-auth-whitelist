@@ -50,6 +50,18 @@ func TestGenerateScriptOnlyConfiguredPorts(t *testing.T) {
 	}
 }
 
+func TestGenerateScriptIntervalSetsUseAutoMerge(t *testing.T) {
+	s := GenerateScript(Config{
+		Table:             "nft_auth_whitelist",
+		Allow4:            []string{"1.2.3.0/24", "1.2.3.4/32"},
+		Allow6:            []string{"2001:db8::/64", "2001:db8::1/128"},
+		ProtectedTCPPorts: []int{8443},
+	})
+	if got := strings.Count(s, "auto-merge"); got != 2 {
+		t.Fatalf("want auto-merge on both interval sets, got %d occurrences in:\n%s", got, s)
+	}
+}
+
 func TestGenerateScriptNoPortsIsNoop(t *testing.T) {
 	s := GenerateScript(Config{Table: "nft_auth_whitelist"})
 	if strings.Contains(s, "drop") {

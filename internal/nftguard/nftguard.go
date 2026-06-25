@@ -65,13 +65,13 @@ func GenerateScript(c Config) string {
 	fmt.Fprintf(&b, "delete table inet %s\n\n", table)
 
 	fmt.Fprintf(&b, "table inet %s {\n", table)
-	fmt.Fprintf(&b, "\tset allow4 {\n\t\ttype ipv4_addr\n\t\tflags interval\n")
+	fmt.Fprintf(&b, "\tset allow4 {\n\t\ttype ipv4_addr\n\t\tflags interval\n\t\tauto-merge\n")
 	if e := elements(c.Allow4); e != "" {
 		fmt.Fprintf(&b, "\t\telements = { %s }\n", e)
 	}
 	b.WriteString("\t}\n\n")
 
-	fmt.Fprintf(&b, "\tset allow6 {\n\t\ttype ipv6_addr\n\t\tflags interval\n")
+	fmt.Fprintf(&b, "\tset allow6 {\n\t\ttype ipv6_addr\n\t\tflags interval\n\t\tauto-merge\n")
 	if e := elements(c.Allow6); e != "" {
 		fmt.Fprintf(&b, "\t\telements = { %s }\n", e)
 	}

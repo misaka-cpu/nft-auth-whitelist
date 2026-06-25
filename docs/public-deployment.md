@@ -140,6 +140,7 @@ sudo vi /etc/nft-auth-whitelist/receive.json
 确认：
 
 - `hmac_secret` 与 RFC 内网机器 auth-server 一致。
+- `max_entries` 与 RFC 内网机器 auth-server 保持一致；不确定时两边都保留默认 `200`。
 - `mode=export`。
 - `nft.enabled=false`。
 - `output_allow_txt` 指向 `/var/lib/nft-auth-whitelist/allow.txt`。
@@ -164,6 +165,8 @@ sudo bash scripts/preflight-receive.sh --config /etc/nft-auth-whitelist/receive.
 - po0 NAT 的访问控制统一读取 `/var/lib/nft-auth-whitelist/allow.txt`。
 - RFC 内网机器上真实服务端口只允许 po0 的真实出站源访问。
 - 不要把 SSH 管理端口放进自动拦截规则；先用带回滚的 nft 规则测试。
+
+注意：空白名单会让受保护端口对所有来源都不可达，直到新的认证记录写入或你恢复上一份有效 `allow.txt`。首次部署时先确认至少有一条自己的 CIDR 出现在 `allow.txt`，再把它接入 NAT / guard。
 
 如果 po0 是云厂商 NAT 公网 IP，RFC 内网机器看到的源地址可能不是 po0 公网 IP。先在 RFC 内网机器抓包或看日志确认真实来源，再写 target guard。
 

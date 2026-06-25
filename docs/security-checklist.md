@@ -25,7 +25,7 @@
 - [ ] forced command 测试中请求 `whoami` 不会执行；期望看到 receive empty input 类错误。
 - [ ] 真实 po0 的 push target `strict_host_key_checking=true`，且已备好 `known_hosts`。
 - [ ] `known_hosts` 已固定真实 po0 主机指纹，不依赖首次连接交互确认。
-- [ ] `hmac_secret` 未泄露，且 receive 端与日本 RFC auth-server 一致。
+- [ ] `hmac_secret` 未泄露，且 receive 端与 RFC 内网机器 auth-server 一致。
 - [ ] `allow.txt` 只是旁路文件，未接入自动拦截。
 - [ ] receive 端 `nft.enabled=false`，`mode=export`。
 - [ ] 没有给 receive 设计或启用 systemd 常驻服务；只通过 SSH forced command 按需启动。

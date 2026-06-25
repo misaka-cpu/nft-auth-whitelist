@@ -3,6 +3,7 @@
 package tests
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -133,6 +134,20 @@ func TestPublicDeploymentGuideExists(t *testing.T) {
 	}
 }
 
+func TestPublicDeploymentGuideDocumentsOperationalFootguns(t *testing.T) {
+	guide := readRepoFile(t, "docs/public-deployment.md")
+	for _, want := range []string{
+		"空白名单",
+		"受保护端口",
+		"`max_entries`",
+		"一致",
+	} {
+		if !strings.Contains(guide, want) {
+			t.Errorf("public deployment guide must document %q", want)
+		}
+	}
+}
+
 func TestPublicDocsUseGenericRFCInternalMachine(t *testing.T) {
 	for _, name := range []string{
 		"README.md",
@@ -151,6 +166,42 @@ func TestPublicDocsUseGenericRFCInternalMachine(t *testing.T) {
 		} {
 			if strings.Contains(body, forbidden) {
 				t.Errorf("%s should use generic RFC internal machine wording, found %q", name, forbidden)
+			}
+		}
+	}
+}
+
+func TestRepositoryDocsUseGenericRFCInternalMachine(t *testing.T) {
+	forbidden := []string{
+		"RFC JP",
+		"RFC 日本",
+		"日本 RFC",
+		"日本机",
+		"日本认证机",
+	}
+	paths := []string{"README.md"}
+	if err := filepath.WalkDir(filepath.Join("..", "docs"), func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || filepath.Ext(path) != ".md" {
+			return nil
+		}
+		rel, err := filepath.Rel("..", path)
+		if err != nil {
+			return err
+		}
+		paths = append(paths, filepath.ToSlash(rel))
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, name := range paths {
+		body := readRepoFile(t, name)
+		for _, term := range forbidden {
+			if strings.Contains(body, term) {
+				t.Errorf("%s should use generic RFC internal machine wording, found %q", name, term)
 			}
 		}
 	}
