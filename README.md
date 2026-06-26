@@ -21,7 +21,7 @@
      → nft-auth-server      记录来源 IP + TTL，签名
      → allow.json (HMAC-SHA256)
      → po0 拉取 / 接收        校验签名 / TTL / 地址族
-     → allow.txt (原子写)     交给 nftables-nat-rust-enhanced 消费
+     → allow.txt (原子写)     供 nftables-nat-rust-enhanced 读取放行
 ```
 
 po0 **主动拉取**或被动接收，**不暴露**任何改白名单的远程 API；关键动作都写 JSON Lines 审计日志。
