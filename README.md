@@ -81,7 +81,8 @@ sudo vi /etc/nft-auth-whitelist/server.json
 
 | 路径 | 鉴权 | 说明 |
 | --- | --- | --- |
-| `GET /` | Basic Auth | 认证成功后记录来源 IP，返回 HTML 显示 CIDR / 过期时间 / TTL |
+| `GET /` | Basic Auth | 显示认证确认页；不写入白名单 |
+| `POST /` | Basic Auth | 记录来源 IP，返回 HTML 显示 CIDR / 过期时间 / TTL |
 | `GET /allow.json` | `Authorization: Bearer <pull_token>` | 返回带 HMAC 签名的只读 envelope（puller 首选） |
 | `GET /allow.txt` | `Authorization: Bearer <pull_token>` | 纯文本，每行一个 CIDR（无签名，非首选） |
 | `GET /health` | 无 | 返回 `ok`，不暴露敏感信息 |
@@ -263,9 +264,9 @@ location / {
 ## 11. TTL 和 /32 / /24 说明
 
 - 默认 TTL 21600 秒（6 小时），到期自动删除。
-- 同一 IP 再次认证成功会**刷新** `expires_at`（续期），并增加 `hit_count`。
+- 同一 IP 再次点击认证按钮并提交成功会**刷新** `expires_at`（续期），并增加 `hit_count`。
 - IPv4 默认记录 `/32`。
-- 仅当 `allow_cidr_expand_ipv4=true` 时，用户可在页面用 `?scope=24` 选择 `/24`，
+- 仅当 `allow_cidr_expand_ipv4=true` 时，用户可打开 `/?scope=24` 后点击认证按钮选择 `/24`，
   且页面会显示 **风险提示**（`/24` 会放行整段 256 个地址）。
 - IPv6 第一版默认关闭；若开启只记录 `/128`，**不会自动扩 `/64`**。
 
@@ -487,14 +488,14 @@ tail -n 20 /var/log/nft-auth-whitelist/receive-audit.log
 
 ## 19. Auth-server automatic SSH push（v0.4.0）
 
-把第 18 节里**手动**执行的 `curl /allow.json | ssh nftauth@TEST_VPS` 变成 auth-server 在**认证成功后自动**完成：用户认证成功 → 记录 IP → 生成 fresh signed `allow.json` → 通过 **SSH stdin** 推送到配置的接收端（接收端 forced command 自动跑 `nft-auth-receive`）。
+把第 18 节里**手动**执行的 `curl /allow.json | ssh nftauth@TEST_VPS` 变成 auth-server 在**POST 认证成功后自动**完成：用户点击认证按钮 → 记录 IP → 生成 fresh signed `allow.json` → 通过 **SSH stdin** 推送到配置的接收端（接收端 forced command 自动跑 `nft-auth-receive`）。
 
 推荐链路：
 
 ```text
 Browser
   -> Cloudflare Access
-  -> auth-server（Basic Auth 成功）
+  -> auth-server（Basic Auth + POST 认证成功）
   -> automatic ssh push（stdin，不传远端命令）
   -> nft-auth-receive forced command（校验 HMAC/TTL/CIDR）
   -> allow.txt
@@ -502,10 +503,10 @@ Browser
 
 关键行为：
 
-- push **默认关闭**（`push.enabled=false`），不配置时行为与旧版完全一致。
+- push **默认关闭**（`push.enabled=false`），不配置时不会自动推送。
 - 复用与 `/allow.json` **完全相同**的 envelope 生成与签名逻辑，接收端用同一个 `hmac_secret` 校验。
 - **同步**推送但每个 target 有超时（默认 10s）；多个 target 逐个独立执行，部分成功/失败分别记录与展示。
-- push 失败**不影响认证记录**、**不删除 allow entry**、**不返回 500**，页面照常显示认证成功并标注 `Push failed`。
+- push 失败**不影响认证记录**、**不删除 allow entry**、**不返回 500**，POST 结果页照常显示认证成功并标注 `Push failed`。
 - 调用系统 `ssh`（`os/exec` 参数数组，不经 shell，不做字符串拼接，杜绝注入），**不传远端命令、不使用 scp**。
 - audit 记录 `push.start` / `push.success` / `push.fail`（含 target/host/port/duration_ms/exit_status/截断后的 stdout·stderr 摘要），**绝不记录 hmac_secret / pull_token / password / Authorization / Cookie / CF Access token**；输出摘要还会主动 redact 已配置的 secret。
 

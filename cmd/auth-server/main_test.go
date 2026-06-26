@@ -55,11 +55,70 @@ func TestRootBasicAuthRequired(t *testing.T) {
 	}
 }
 
-func TestRootBasicAuthSuccessRecordsRemoteAddr(t *testing.T) {
+func TestRootGetWithAuthShowsFormWithoutRecording(t *testing.T) {
+	srv, _ := testServer(t, nil)
+	rec := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.RemoteAddr = "1.2.3.4:1111"
+	r.SetBasicAuth("admin", "secret")
+	srv.Handler().ServeHTTP(rec, r)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if srv.store.Count() != 0 {
+		t.Fatalf("GET / must not record an entry, count=%d", srv.store.Count())
+	}
+	if !strings.Contains(rec.Body.String(), "method=\"post\"") {
+		t.Fatalf("GET / should render a POST form, got %s", rec.Body.String())
+	}
+}
+
+func TestRootGetWithAuthDoesNotPurgeExpiredEntries(t *testing.T) {
+	srv, _ := testServer(t, nil)
+	now := time.Date(2026, 6, 26, 12, 0, 0, 0, time.UTC)
+	old := now.Add(-2 * time.Minute)
+	if _, err := srv.store.Record("9.9.9.9/32", "9.9.9.9", "test", old, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	srv.now = func() time.Time { return now }
+
+	rec := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.RemoteAddr = "1.2.3.4:1111"
+	r.SetBasicAuth("admin", "secret")
+	srv.Handler().ServeHTTP(rec, r)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	snap := srv.store.Snapshot(old.Add(30 * time.Second))
+	if len(snap) != 1 || snap[0].CIDR != "9.9.9.9/32" {
+		t.Fatalf("GET / must not purge or add entries, got %+v", snap)
+	}
+}
+
+func TestRootUnsupportedMethodDoesNotRecord(t *testing.T) {
+	srv, _ := testServer(t, nil)
+	rec := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPut, "/", nil)
+	r.RemoteAddr = "1.2.3.4:1111"
+	r.SetBasicAuth("admin", "secret")
+	srv.Handler().ServeHTTP(rec, r)
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("want 405, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if rec.Header().Get("Allow") != "GET, POST" {
+		t.Fatalf("Allow = %q, want GET, POST", rec.Header().Get("Allow"))
+	}
+	if srv.store.Count() != 0 {
+		t.Fatalf("unsupported method must not record, count=%d", srv.store.Count())
+	}
+}
+
+func TestRootPostBasicAuthSuccessRecordsRemoteAddr(t *testing.T) {
 	srv, _ := testServer(t, nil)
 	rec := httptest.NewRecorder()
 	// Attempt to spoof via query param AND X-Forwarded-For; both must be ignored.
-	r := httptest.NewRequest(http.MethodGet, "/?ip=9.9.9.9", nil)
+	r := httptest.NewRequest(http.MethodPost, "/?ip=9.9.9.9", nil)
 	r.RemoteAddr = "1.2.3.4:1111"
 	r.Header.Set("X-Forwarded-For", "8.8.8.8")
 	r.SetBasicAuth("admin", "secret")
@@ -78,7 +137,7 @@ func TestRootTrustedProxyRecordsCFConnectingIP(t *testing.T) {
 		c.TrustedProxyCIDRs = []string{"127.0.0.1/32"}
 	})
 	rec := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequest(http.MethodPost, "/", nil)
 	r.RemoteAddr = "127.0.0.1:1111"
 	r.Header.Set("CF-Connecting-IP", "1.2.3.4")
 	r.Header.Set("X-Real-IP", "5.6.7.8")
@@ -144,7 +203,7 @@ func TestRootBasicAuthFailureDoesNotPurgeExpiredEntries(t *testing.T) {
 func TestExpand24DisabledByDefault(t *testing.T) {
 	srv, _ := testServer(t, nil) // AllowCIDRExpandIPv4 defaults false
 	rec := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/?scope=24", nil)
+	r := httptest.NewRequest(http.MethodPost, "/?scope=24", nil)
 	r.RemoteAddr = "1.2.3.4:1111"
 	r.SetBasicAuth("admin", "secret")
 	srv.Handler().ServeHTTP(rec, r)
@@ -159,7 +218,7 @@ func TestExpand24EnabledIPv4Only(t *testing.T) {
 		c.AllowCIDRExpandIPv4 = true
 	})
 	rec := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/?scope=24", nil)
+	r := httptest.NewRequest(http.MethodPost, "/?scope=24", nil)
 	r.RemoteAddr = "1.2.3.4:1111"
 	r.SetBasicAuth("admin", "secret")
 	srv.Handler().ServeHTTP(rec, r)
@@ -175,7 +234,7 @@ func TestExpand24EnabledIPv4Only(t *testing.T) {
 func TestIPv6DisabledByDefault(t *testing.T) {
 	srv, _ := testServer(t, nil) // AllowIPv6 false
 	rec := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequest(http.MethodPost, "/", nil)
 	r.RemoteAddr = "[2001:db8::1]:1111"
 	r.SetBasicAuth("admin", "secret")
 	srv.Handler().ServeHTTP(rec, r)
@@ -192,7 +251,7 @@ func TestIPv6EnabledRecords128(t *testing.T) {
 		c.AllowIPv6 = true
 	})
 	rec := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequest(http.MethodPost, "/", nil)
 	r.RemoteAddr = "[2001:db8::1]:1111"
 	r.SetBasicAuth("admin", "secret")
 	srv.Handler().ServeHTTP(rec, r)
@@ -231,7 +290,7 @@ func TestAllowExportsSetNoStore(t *testing.T) {
 func TestAllowJSONSignedAndVerifiable(t *testing.T) {
 	srv, _ := testServer(t, nil)
 	// Seed an entry.
-	r0 := httptest.NewRequest(http.MethodGet, "/", nil)
+	r0 := httptest.NewRequest(http.MethodPost, "/", nil)
 	r0.RemoteAddr = "1.2.3.4:1111"
 	r0.SetBasicAuth("admin", "secret")
 	srv.Handler().ServeHTTP(httptest.NewRecorder(), r0)

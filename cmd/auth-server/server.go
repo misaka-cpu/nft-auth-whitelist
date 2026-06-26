@@ -82,6 +82,11 @@ func (s *server) handleRoot(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if r.Method != http.MethodGet && r.Method != http.MethodPost {
+		w.Header().Set("Allow", "GET, POST")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 
 	resolved := s.client.Extract(r)
 	peer := ipString(resolved.RemoteIP, clientHost(r))
@@ -111,13 +116,6 @@ func (s *server) handleRoot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Opportunistic purge of expired entries after authentication. The
-	// background ticker also purges periodically; unauthenticated requests must
-	// not be able to force a store scan/write.
-	for _, cidr := range s.store.Purge(s.now()) {
-		s.audit.Log(audit.ActionEntryExpire, audit.ResultOK, map[string]interface{}{"cidr": cidr})
-	}
-
 	// Authenticated. The recorded IP is ALWAYS the request source IP; any
 	// client-supplied IP value is ignored by design.
 	ip := resolved.ClientIP
@@ -133,10 +131,22 @@ func (s *server) handleRoot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if r.Method == http.MethodGet {
+		s.renderAuthForm(w, r, ip)
+		return
+	}
+
+	// Opportunistic purge of expired entries after authentication. The
+	// background ticker also purges periodically; unauthenticated requests and
+	// read-only GET requests must not be able to force a store scan/write.
+	for _, cidr := range s.store.Purge(s.now()) {
+		s.audit.Log(audit.ActionEntryExpire, audit.ResultOK, map[string]interface{}{"cidr": cidr})
+	}
+
 	// Optional /24 widening is only honoured when enabled in config AND
-	// requested by the user via ?scope=24, and only for IPv4.
+	// requested by the user via the auth form or ?scope=24, and only for IPv4.
 	expand24 := false
-	if s.cfg.AllowCIDRExpandIPv4 && r.URL.Query().Get("scope") == "24" {
+	if s.cfg.AllowCIDRExpandIPv4 && requestedScope(r) == "24" {
 		expand24 = true
 	}
 
@@ -193,6 +203,67 @@ func (s *server) handleRoot(w http.ResponseWriter, r *http.Request) {
 	s.renderRoot(w, res.Entry, pushResults)
 }
 
+func requestedScope(r *http.Request) string {
+	if scope := r.URL.Query().Get("scope"); scope != "" {
+		return scope
+	}
+	if r.Method != http.MethodPost {
+		return ""
+	}
+	if err := r.ParseForm(); err != nil {
+		return ""
+	}
+	return r.PostForm.Get("scope")
+}
+
+func (s *server) renderAuthForm(w http.ResponseWriter, r *http.Request, ip net.IP) {
+	scope := "/32"
+	if ip.To4() == nil {
+		scope = "/128"
+	} else if s.cfg.AllowCIDRExpandIPv4 && requestedScope(r) == "24" {
+		scope = "/24"
+	}
+
+	action := "/"
+	warn := ""
+	if scope == "/24" {
+		action = "/?scope=24"
+		warn = `<p class="warn">⚠ 风险提示：/24 会放行整个 256 个地址的网段，请仅在你确实拥有该网段时使用。</p>`
+	}
+
+	ttl := time.Duration(s.cfg.TTLSeconds) * time.Second
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(w, `<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>nft-auth-whitelist</title>
+<style>
+body{font-family:system-ui,sans-serif;max-width:40rem;margin:3rem auto;padding:0 1rem;line-height:1.6}
+code{background:#f0f0f0;padding:.1rem .3rem;border-radius:.2rem}
+.warn{color:#a00}
+</style></head><body>
+<h1>认证入口</h1>
+<p>点击下面按钮后，服务端会把“你访问本页面的来源公网 IP”加入临时白名单。</p>
+<table>
+<tr><td>当前来源 IP</td><td><code>%s</code></td></tr>
+<tr><td>将记录范围</td><td>%s</td></tr>
+<tr><td>TTL</td><td>%s</td></tr>
+</table>
+%s
+<form method="post" action="%s">
+<p><button type="submit">认证当前 IP</button></p>
+</form>
+<p>说明：打开本页面只会显示确认页，不会写入白名单；提交按钮后才会记录或刷新过期时间。</p>
+</body></html>
+`,
+		html.EscapeString(ip.String()),
+		scope,
+		ttl.String(),
+		warn,
+		html.EscapeString(action),
+	)
+}
+
 func (s *server) renderRoot(w http.ResponseWriter, e signer.Entry, pushResults []sshpush.Result) {
 	scope := "/32"
 	if family := ipx.FamilyOfCIDR(e.CIDR); family == "ipv6" {
@@ -232,7 +303,7 @@ table{border-collapse:collapse}td{padding:.2rem .8rem;border-bottom:1px solid #e
 </table>
 %s
 %s
-<p>说明：本服务只记录“你访问本页面的来源公网 IP”，不接受任何由你自行提交的 IP。重新访问本页面可刷新过期时间。</p>
+<p>说明：本服务只记录“你访问本页面的来源公网 IP”，不接受任何由你自行提交的 IP。再次点击认证按钮可刷新过期时间。</p>
 </body></html>
 `,
 		html.EscapeString(e.IP),

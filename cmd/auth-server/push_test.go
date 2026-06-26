@@ -48,7 +48,7 @@ func pushServer(t *testing.T, fakeSSH string) (*server, *bytes.Buffer) {
 func authSuccess(t *testing.T, srv *server) *httptest.ResponseRecorder {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequest(http.MethodPost, "/", nil)
 	r.RemoteAddr = "1.2.3.4:1111"
 	r.SetBasicAuth("admin", "secret")
 	srv.Handler().ServeHTTP(rec, r)

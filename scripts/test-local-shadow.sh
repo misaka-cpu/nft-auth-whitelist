@@ -130,7 +130,7 @@ if [[ "$health" != "ok" ]]; then
 fi
 
 auth_html="$tmp/auth.html"
-curl -fsS -u "$username:$password" "$base_url/" -o "$auth_html"
+curl -fsS -X POST -u "$username:$password" "$base_url/" -o "$auth_html"
 if ! grep -qF "127.0.0.1/32" "$auth_html"; then
   echo "auth page did not show 127.0.0.1/32" >&2
   sed -n '1,120p' "$auth_html" >&2

@@ -1,12 +1,12 @@
 # auth-server 自动 SSH push
 
-认证成功后，auth-server 生成 fresh 签名 `allow.json` 并通过 **SSH stdin** 推送到配置的接收端
-（接收端 forced command 自动运行 `nft-auth-receive`）。默认关闭，`push.enabled=false` 时行为同旧版。
+用户点击认证按钮并 POST 认证成功后，auth-server 生成 fresh 签名 `allow.json` 并通过 **SSH stdin** 推送到配置的接收端
+（接收端 forced command 自动运行 `nft-auth-receive`）。默认关闭，`push.enabled=false` 时仍只完成认证记录，不自动推送。
 
 链路：
 
 ```text
-Browser -> Cloudflare Access -> auth-server（Basic Auth）
+Browser -> Cloudflare Access -> auth-server（Basic Auth + POST /）
   -> automatic ssh push（stdin，不传远端命令、不用 scp）
   -> nft-auth-receive forced command（校验 HMAC/TTL/CIDR）
   -> allow.txt
