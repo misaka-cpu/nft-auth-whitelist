@@ -2,7 +2,7 @@
 
 主项目 **nftables-nat-rust-enhanced** 的 sidecar 配套项目，**不修改主项目**。
 
-用户在 RFC 内网机器上经 HTTPS 认证页登录，auth-server 记录其真实来源公网 IP（带 TTL，默认 `/32`）并签名导出；国内 po0 机器拿到这份白名单，写成本地 `allow.txt` 交给主项目消费。纯 Go 标准库实现，静态编译、依赖少。
+用户在 RFC 内网机器上经 HTTPS 认证页登录，auth-server 记录其真实来源公网 IP（带 TTL，默认 `/32`）并签名导出；国内 po0 机器拿到这份白名单，写成本地 `allow.txt`，主项目读它放行。纯 Go 标准库实现，静态编译、依赖少。
 
 ## 三个二进制
 
