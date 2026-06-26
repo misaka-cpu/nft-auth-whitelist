@@ -31,3 +31,6 @@ puller.local.json
 .DS_Store
 .idea/
 .vscode/
+
+# Internal planning docs (not shipped in the public repo)
+/docs/superpowers/
