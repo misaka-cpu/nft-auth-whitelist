@@ -92,15 +92,25 @@ Cloudflare Access 前门、trusted proxy 的完整配置见 [SECURITY.md](./SECU
 
 puller / receive 默认 `export` 模式，**默认不执行**任何 `nft` 命令。要让本项目自己下发 nft 规则，需**同时**满足 `mode=nft`（或 `nft.enabled=true`）和命令行 `--apply`。它只管理自己的 `table inet nft_auth_whitelist`，绝不 `flush ruleset`，`policy accept` 只对配置里的受保护端口做「白名单放行、否则 drop」，不碰主项目和其它表。不确定就先 `--dry-run` 看生成的脚本。
 
-## 安装 / 构建
+## 安装
+
+一键安装（下载对应架构的 Release tarball、校验 sha256、再跑包内 `install.sh`）：
 
 ```bash
-sudo ./install.sh --role <auth-server|receive|puller>   # 安装；--update 只换二进制；--dry-run 只打印
-bash scripts/build.sh        # 三个二进制 → dist/
-bash scripts/check.sh        # gofmt + vet + test + 打包 + secret-scan + 安装自检
+curl -fsSL https://raw.githubusercontent.com/misaka-cpu/nft-auth-whitelist/main/scripts/install-release.sh \
+  | sudo bash -s -- --role auth-server        # 或 --role receive / puller
+# 指定版本：在 -s -- 后加 --version v0.6.0
 ```
 
-`install.sh` 只复制文件、建目录/用户、可选装 systemd 单元；不自动启动、不 enable nft、不改 sshd / 防火墙、不覆盖已有配置（改写 `<name>.json.new` 供对比）。角色与升级细节见 [docs/](./docs/)。
+或从源码构建：
+
+```bash
+git clone https://github.com/misaka-cpu/nft-auth-whitelist.git && cd nft-auth-whitelist
+bash scripts/build.sh                                   # 三个二进制 → dist/
+sudo ./install.sh --role <auth-server|receive|puller>   # --update 只换二进制；--dry-run 只打印
+```
+
+`install.sh` 只复制文件、建目录/用户、可选装 systemd 单元；不自动启动、不 enable nft、不改 sshd / 防火墙、不覆盖已有配置（改写 `<name>.json.new` 供对比）。`bash scripts/check.sh` 跑全套自检。角色与升级细节见 [docs/](./docs/)。
 
 ---
 

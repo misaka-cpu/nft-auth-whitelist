@@ -36,6 +36,7 @@ for arch in amd64 arm64; do
   for script in \
     scripts/preflight-receive.sh \
     scripts/preflight-push-target.sh \
+    scripts/pin-egress-to-primary.sh \
     scripts/check.sh \
     scripts/install-release.sh \
     scripts/test-install.sh \
