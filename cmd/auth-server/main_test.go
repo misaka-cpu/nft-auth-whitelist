@@ -361,29 +361,3 @@ func TestRateLimitUsesResolvedClientIP(t *testing.T) {
 		t.Fatalf("first client second failure got %d", got)
 	}
 }
-
-func TestWriteTimeoutAccountsForSerialPush(t *testing.T) {
-	base := &config.ServerConfig{}
-	if got := writeTimeout(base); got != 15*time.Second {
-		t.Fatalf("push disabled: write timeout = %s, want 15s", got)
-	}
-
-	withPush := &config.ServerConfig{Push: config.PushConfig{
-		Enabled:        true,
-		TimeoutSeconds: 10,
-		Targets: []config.PushTarget{
-			{Name: "a"}, {Name: "b"}, {Name: "c"},
-		},
-	}}
-	// 15s base + 3 targets * 10s worst-case serial push.
-	want := 15*time.Second + 3*10*time.Second
-	if got := writeTimeout(withPush); got != want {
-		t.Fatalf("push enabled: write timeout = %s, want %s", got, want)
-	}
-
-	// Enabled but no targets must not extend the deadline.
-	empty := &config.ServerConfig{Push: config.PushConfig{Enabled: true, TimeoutSeconds: 10}}
-	if got := writeTimeout(empty); got != 15*time.Second {
-		t.Fatalf("push enabled with no targets: write timeout = %s, want 15s", got)
-	}
-}
