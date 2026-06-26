@@ -70,3 +70,18 @@ curl -fsS -H "Authorization: Bearer $PULL_TOKEN" http://127.0.0.1:8088/allow.jso
 - 调用系统 `ssh`（参数数组，不经 shell，不用 scp，不传远端命令）。
 - audit 记 `push.start` / `push.success` / `push.fail`，**绝不记录 secret/token/password**；摘要会 redact。
 - **不启用 nft / `--apply`**；**SSH 管理端口不要纳入自动拦截**。
+
+## 5. 多 IP 机器：把 push 源固定到主 IP
+
+如果认证机有多个公网 IP（例如 `exit-ip-manager` 在主 IP 之外又加挂了一个出口 IP），默认出口会走**加挂 IP**，push 到接收端时源地址就是加挂 IP，接收端防火墙不好放行、加挂 IP 变了还会断。
+
+用 `scripts/pin-egress-to-primary.sh` 自动识别主 IP（取 `/etc/exit-ip-manager/managed_ips` 的 orig_ip，回退 `/etc/network/interfaces` 的 address）并把到接收端的流量固定从主 IP 出：
+
+```bash
+sudo scripts/pin-egress-to-primary.sh                          # 只识别，打印主 IP / 加挂 IP / 当前出口
+sudo scripts/pin-egress-to-primary.sh --dest <po0_ip> --dry-run  # 预览要加的路由
+sudo scripts/pin-egress-to-primary.sh --dest <po0_ip> --persist  # 应用并持久化（ifupdown post-up）
+```
+
+接收端防火墙记得**只放行主 IP** 到 push/SSH 端口。
+
