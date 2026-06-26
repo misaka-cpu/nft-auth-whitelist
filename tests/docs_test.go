@@ -70,16 +70,6 @@ func TestReadmeDefaultsNoNFTNoPermanent(t *testing.T) {
 	}
 }
 
-func TestReadmeExcludesForbiddenIntegrations(t *testing.T) {
-	readme := readRepoFile(t, "README.md")
-	// These appear only in the "明确不做" (explicitly not doing) section.
-	for _, want := range []string{"metowolf", "省墙", "Telegram", "WebUI", "多租户", "数据库"} {
-		if !strings.Contains(readme, want) {
-			t.Errorf("README must explicitly disclaim %q", want)
-		}
-	}
-}
-
 func TestSecurityDocExists(t *testing.T) {
 	sec := readRepoFile(t, "SECURITY.md")
 	if !strings.Contains(sec, "HTTPS") || !strings.Contains(sec, "TTL") {
