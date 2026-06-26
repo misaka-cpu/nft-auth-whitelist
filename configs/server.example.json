@@ -5,7 +5,7 @@
   "password": "change-me-strong-password",
   "pull_token": "change-me-pull-token",
   "hmac_secret": "change-me-hmac-secret",
-  "ttl_seconds": 21600,
+  "ttl_seconds": 1209600,
   "max_entries": 200,
   "allow_ipv4": true,
   "allow_ipv6": false,

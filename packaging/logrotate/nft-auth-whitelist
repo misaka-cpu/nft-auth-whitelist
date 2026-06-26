@@ -1,0 +1,17 @@
+# logrotate config for nft-auth-whitelist audit logs.
+# Install to: /etc/logrotate.d/nft-auth-whitelist
+#
+# The audit logger appends to its file with O_APPEND for the life of the process
+# and does NOT reopen on SIGHUP, so the resident auth-server would keep writing
+# into a rotated-away inode after a plain rename. copytruncate avoids that (it
+# copies then truncates the existing file in place). The puller/receive are
+# short-lived (oneshot / SSH forced command) and are unaffected either way.
+/var/log/nft-auth-whitelist/*.log {
+    weekly
+    rotate 8
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+}

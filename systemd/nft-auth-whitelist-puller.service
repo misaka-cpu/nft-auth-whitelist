@@ -4,6 +4,15 @@
 # Default mode is "export": it only writes allow.txt. To actually apply the
 # optional nft guard you must enable it in puller.json AND add --apply below;
 # that is intentionally left out of this sample.
+#
+# Privilege: export mode only writes files and needs no root. Only the nft guard
+# (--apply) needs root / CAP_NET_ADMIN. For an export-only deployment consider
+# adding "DynamicUser=yes" (or a dedicated User=) to drop privileges.
+#
+# Paths: ReadWritePaths below must cover output_allow_txt / output_state_json
+# from puller.json. If you point them outside /var/lib/nft-auth-whitelist (e.g.
+# to feed the main nat-rust project), add that directory here too, or the write
+# fails under ProtectSystem=strict.
 [Unit]
 Description=nft-auth-whitelist puller (single pull cycle)
 After=network-online.target

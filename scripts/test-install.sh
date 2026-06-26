@@ -47,6 +47,14 @@ expect_ok   "server audit log stays under log directory" grep -q '"audit_log": "
 expect_ok   "puller audit log stays under log directory" grep -q '"audit_log": "/var/log/nft-auth-whitelist/puller-audit.log"' "$ROOT/configs/puller.example.json"
 expect_ok   "file puller audit log stays under log directory" grep -q '"audit_log": "/var/log/nft-auth-whitelist/puller-audit.log"' "$ROOT/configs/puller-file.example.json"
 
+echo "== authorized_key forced-command safety =="
+AKTMP="$(mktemp -d)"
+printf 'ssh-ed25519 AAAAONEKEY test@host\n' > "$AKTMP/one.pub"
+printf 'ssh-ed25519 AAAAKEYONE a@host\nssh-ed25519 AAAAKEYTWO b@host\n' > "$AKTMP/two.pub"
+expect_ok   "single-key authorized_keys accepted"  bash "$INSTALL" --role receive --dry-run --install-authorized-key "$AKTMP/one.pub"
+expect_fail "multi-key authorized_keys rejected"   bash "$INSTALL" --role receive --dry-run --install-authorized-key "$AKTMP/two.pub"
+rm -rf "$AKTMP"
+
 receive_dry="$(bash "$INSTALL" --role receive --dry-run 2>&1)"
 if grep -qxF 'DRY: chown root:nftauth /etc/nft-auth-whitelist' <<<"$receive_dry"; then
   ok "receive config dir is group-readable by nftauth"

@@ -120,6 +120,17 @@ require_root() {
 
 timestamp() { date -u +%Y%m%d-%H%M%S; }
 
+# prune_backups <dst>: keep only the newest 5 <dst>.bak.* files so repeated
+# --update runs do not accumulate binaries in the bin dir indefinitely. The
+# .bak.<timestamp> suffix sorts lexically by time, so sort -r is newest-first.
+prune_backups() {
+  local dst="$1" old
+  while IFS= read -r old; do
+    [[ -n "$old" ]] || continue
+    run rm -f "$old"
+  done < <(ls -1 "$dst".bak.* 2>/dev/null | sort -r | tail -n +6)
+}
+
 # install_bin <name>: back up an existing binary, then install the new one.
 install_bin() {
   local name="$1" src dst
@@ -137,6 +148,7 @@ install_bin() {
   if [[ -f "$dst" ]]; then
     run cp -a "$dst" "$dst.bak.$(timestamp)"
     note "backed up existing $dst"
+    prune_backups "$dst"
   fi
   run install -m 0755 "$src" "$dst"
   log "installed $dst"
@@ -179,7 +191,7 @@ systemd_available() {
 
 # ----- systemd unit (auth-server) --------------------------------------------
 install_authserver_unit() {
-  local unit="/etc/systemd/system/nft-auth-server.service"
+  local unit="/etc/systemd/system/nft-auth-whitelist-server.service"
   if ! systemd_available; then
     note "systemd skipped (--no-systemd or systemctl absent). Sample unit in ./systemd/."
     return 0
@@ -212,8 +224,12 @@ EOF
     chmod 0644 "$unit"
   fi
   log "installed $unit"
+  if [[ -e /etc/systemd/system/nft-auth-server.service ]]; then
+    note "found an old-named unit /etc/systemd/system/nft-auth-server.service;"
+    note "disable and remove it so two units don't bind the same listen address."
+  fi
   run systemctl daemon-reload
-  note "NOT enabled/started. Review, then: systemctl enable --now nft-auth-server.service"
+  note "NOT enabled/started. Review, then: systemctl enable --now nft-auth-whitelist-server.service"
 }
 
 # ----- authorized_keys (receive, opt-in only) --------------------------------
@@ -223,16 +239,30 @@ install_authorized_key() {
     echo "error: --install-authorized-key file not found: $pub" >&2
     exit 1
   fi
-  local home ssh_dir ak forced line
-  home="$(getent passwd "$SVC_USER" 2>/dev/null | cut -d: -f6)"
+  local home ssh_dir ak forced line keyline keycount
+  # getent exits non-zero when the user does not exist yet (e.g. --dry-run before
+  # ensure_user runs); tolerate that under `set -e` and fall back to a default.
+  home="$(getent passwd "$SVC_USER" 2>/dev/null | cut -d: -f6 || true)"
   home="${home:-/home/$SVC_USER}"
   ssh_dir="$home/.ssh"
   ak="$ssh_dir/authorized_keys"
+
+  # The forced command is the ENTIRE security model for the receive role, so the
+  # pubkey file must contain exactly one key. A multi-line file would append the
+  # extra keys without the forced-command prefix, i.e. as unrestricted SSH/shell
+  # access for $SVC_USER. Ignore blank lines and comments when counting.
+  keycount="$(grep -cvE '^[[:space:]]*($|#)' "$pub")"
+  if [[ "$keycount" -ne 1 ]]; then
+    echo "error: --install-authorized-key file must contain exactly one public key (found $keycount)" >&2
+    exit 1
+  fi
+  keyline="$(grep -vE '^[[:space:]]*($|#)' "$pub")"
+
   forced="command=\"$BIN_DIR/nft-auth-receive -config $CONFIG_DIR/receive.json\",no-pty,no-agent-forwarding,no-X11-forwarding,no-port-forwarding"
-  line="$forced $(cat "$pub")"
+  line="$forced $keyline"
 
   make_dir "$ssh_dir" 0700 "$SVC_USER:$SVC_USER"
-  if [[ -f "$ak" ]] && grep -qF "$(awk '{print $2}' "$pub")" "$ak" 2>/dev/null; then
+  if [[ -f "$ak" ]] && grep -qF "$(awk '{print $2}' <<<"$keyline")" "$ak" 2>/dev/null; then
     note "authorized_keys already contains this key; left unchanged"
     return 0
   fi
@@ -328,7 +358,7 @@ do_update() {
       ;;
   esac
   note "binaries replaced (old ones saved as *.bak.<timestamp>)."
-  note "restart any affected service yourself, e.g.: systemctl restart nft-auth-server.service"
+  note "restart any affected service yourself, e.g.: systemctl restart nft-auth-whitelist-server.service"
 }
 
 # ----- main -------------------------------------------------------------------
@@ -361,3 +391,4 @@ echo
 log "done."
 note "Reminders: set strong secrets in $CONFIG_DIR/*.json; deploy auth-server behind HTTPS;"
 note "keep receive keys as forced commands; nft/--apply stay OFF; do not block your SSH management port."
+note "audit logs grow unbounded: install packaging/logrotate/nft-auth-whitelist to /etc/logrotate.d/."

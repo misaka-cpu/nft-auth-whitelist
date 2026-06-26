@@ -61,7 +61,7 @@ curl -fsS -H "Authorization: Bearer $PULL_TOKEN" http://127.0.0.1:8088/allow.jso
 # 期望： ok entries=N output=...
 ```
 
-确认无误后把 `push.enabled` 设为 `true` 并 `systemctl restart nft-auth-server.service`。
+确认无误后把 `push.enabled` 设为 `true` 并 `systemctl restart nft-auth-whitelist-server.service`。
 
 ## 4. 行为与安全
 

@@ -124,7 +124,7 @@ nft-auth-puller --config /etc/nft-auth-whitelist/puller.json --once --apply
 | `username` / `password` | — | Basic Auth 凭据，constant-time 比较 |
 | `pull_token` | — | puller 拉取用的 Bearer token |
 | `hmac_secret` | — | `allow.json` 签名密钥，两端必须一致 |
-| `ttl_seconds` | `21600` | 每条记录 TTL，默认 6 小时 |
+| `ttl_seconds` | `1209600` | 每条记录 TTL，默认 14 天 |
 | `max_entries` | `200` | 超限时清理最旧 / 已过期记录 |
 | `allow_ipv4` / `allow_ipv6` | `true` / `false` | 地址族开关；IPv6 默认关闭 |
 | `allow_cidr_expand_ipv4` | `false` | 是否允许用户选择 `/24`（默认关闭） |
@@ -263,7 +263,7 @@ location / {
 
 ## 11. TTL 和 /32 / /24 说明
 
-- 默认 TTL 21600 秒（6 小时），到期自动删除。
+- 默认 TTL 1209600 秒（14 天），到期自动删除。
 - 同一 IP 再次点击认证按钮并提交成功会**刷新** `expires_at`（续期），并增加 `hit_count`。
 - IPv4 默认记录 `/32`。
 - 仅当 `allow_cidr_expand_ipv4=true` 时，用户可打开 `/?scope=24` 后点击认证按钮选择 `/24`，
@@ -351,7 +351,7 @@ sudo systemctl enable --now nft-auth-whitelist-puller.timer          # po0
 - **会自动改防火墙吗？** 默认不会。只有显式 `--apply` 且配置开启 guard 时才会执行 nft。
 - **能让用户提交某个 IP 吗？** 不能。只记录认证请求的来源 IP。
 - **套了 Cloudflare Access / CDN 怎么办？** auth-server 只应信任你明确配置的反代 CIDR，见第 10 节；不要把公网来源全部加入 `trusted_proxy_cidrs`。
-- **会永久加白吗？** 不会。所有记录都有 TTL，默认 6 小时。
+- **会永久加白吗？** 不会。所有记录都有 TTL，默认 14 天。
 
 ## 17. Puller file source 模式 / SSH push 工作流
 
@@ -589,7 +589,7 @@ curl -fsS -H "Authorization: Bearer $PULL_TOKEN" http://127.0.0.1:8088/allow.jso
 
 | 角色 | 机器 | 安装内容 |
 | --- | --- | --- |
-| `auth-server` | RFC 内网认证机 | `nft-auth-server` + 配置/数据/日志目录 + `/etc/systemd/system/nft-auth-server.service`（不 enable/start）。详见 [docs/deploy-auth-server.md](./docs/deploy-auth-server.md) |
+| `auth-server` | RFC 内网认证机 | `nft-auth-server` + 配置/数据/日志目录 + `/etc/systemd/system/nft-auth-whitelist-server.service`（不 enable/start）。详见 [docs/deploy-auth-server.md](./docs/deploy-auth-server.md) |
 | `receive` | 国外 VPS / 未来 po0 | `nft-auth-receive` + `nftauth` 用户 + `inbox` 目录；打印 forced command 示例（按需 SSH 启动，无常驻服务）。详见 [docs/deploy-receive.md](./docs/deploy-receive.md) |
 | `puller` | 调试 / 兼容 | `nft-auth-puller` + `puller.json` / `puller-file.json` 示例（默认 export，不启用 nft/apply） |
 | `all` | 仅开发/测试 | 安装三个二进制（不建议生产默认） |

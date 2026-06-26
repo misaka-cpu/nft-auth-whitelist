@@ -24,6 +24,22 @@ import (
 	"github.com/misaka-cpu/nft-auth-whitelist/internal/version"
 )
 
+// writeTimeout returns the HTTP server write deadline. The auth handler performs
+// the optional SSH push synchronously (one target after another, each capped at
+// push.timeout_seconds) before it writes its response. With a fixed 15s deadline
+// a slow or numerous set of push targets could trip WriteTimeout and break the
+// response even though the entry was already recorded. So when push is enabled we
+// extend the deadline to cover the worst-case serial push time plus a base
+// response budget. When push is off this stays at the original 15s.
+func writeTimeout(cfg *config.ServerConfig) time.Duration {
+	const base = 15 * time.Second
+	if !cfg.Push.Enabled || len(cfg.Push.Targets) == 0 {
+		return base
+	}
+	per := time.Duration(cfg.Push.TimeoutSeconds) * time.Second
+	return base + time.Duration(len(cfg.Push.Targets))*per
+}
+
 func main() {
 	cfgPath := flag.String("config", "/etc/nft-auth-whitelist/server.json", "path to server config")
 	showVersion := flag.Bool("version", false, "print version and exit")
@@ -74,7 +90,7 @@ func main() {
 		Handler:           srv.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      15 * time.Second,
+		WriteTimeout:      writeTimeout(cfg),
 		IdleTimeout:       60 * time.Second,
 	}
 

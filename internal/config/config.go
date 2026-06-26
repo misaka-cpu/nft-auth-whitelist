@@ -138,7 +138,7 @@ func LoadServerConfig(path string) (*ServerConfig, error) {
 	// boolean defaults such as AllowIPv4=true are honoured.
 	c := &ServerConfig{
 		Listen:     "127.0.0.1:8088",
-		TTLSeconds: 21600,
+		TTLSeconds: 1209600, // 14 days
 		MaxEntries: 200,
 		AllowIPv4:  true,
 		DataDir:    "/var/lib/nft-auth-whitelist",
@@ -151,7 +151,7 @@ func LoadServerConfig(path string) (*ServerConfig, error) {
 		c.Listen = "127.0.0.1:8088"
 	}
 	if c.TTLSeconds <= 0 {
-		c.TTLSeconds = 21600
+		c.TTLSeconds = 1209600 // 14 days
 	}
 	if c.MaxEntries <= 0 {
 		c.MaxEntries = 200
