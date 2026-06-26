@@ -34,3 +34,6 @@ puller.local.json
 
 # Internal planning docs (not shipped in the public repo)
 /docs/superpowers/
+
+# Claude Code local settings
+.claude/
