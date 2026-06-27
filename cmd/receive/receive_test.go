@@ -223,6 +223,50 @@ func TestReceiveNoSecretsInOutput(t *testing.T) {
 	}
 }
 
+func TestReceiveStateWriteFailureKeepsOldAllowTxt(t *testing.T) {
+	r, cfg, _, _ := testReceiver(t)
+	// Seed an OLD operative allow.txt.
+	os.MkdirAll(filepath.Dir(cfg.OutputAllowTxt), 0o755)
+	os.WriteFile(cfg.OutputAllowTxt, []byte("9.9.9.9/32\n"), 0o644)
+
+	// Make the state json write fail (its parent is a regular file, so the atomic
+	// write's MkdirAll fails). State is written before the operative allow.txt.
+	blocker := filepath.Join(t.TempDir(), "blocker")
+	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg.OutputStateJSON = filepath.Join(blocker, "state.json")
+
+	body := signedBytes(t, envWithEntries([]signer.Entry{validEntry("1.2.3.4/32", "1.2.3.4")}), testSecret)
+	if err := r.run(bytes.NewReader(body)); err == nil {
+		t.Fatal("expected a state-write failure")
+	}
+	// allow.txt is written last, so a state failure must leave it unchanged.
+	assertPreserved(t, cfg.OutputAllowTxt)
+}
+
+func TestReceiveInboxWriteFailureKeepsOldAllowTxt(t *testing.T) {
+	r, cfg, _, _ := testReceiver(t)
+	// Seed an OLD operative allow.txt.
+	os.MkdirAll(filepath.Dir(cfg.OutputAllowTxt), 0o755)
+	os.WriteFile(cfg.OutputAllowTxt, []byte("9.9.9.9/32\n"), 0o644)
+
+	// Make the inbox write fail (its parent is a regular file). The inbox is
+	// written first, so the operative allow.txt must never be reached.
+	blocker := filepath.Join(t.TempDir(), "blocker")
+	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg.InboxAllowJSON = filepath.Join(blocker, "allow.json")
+
+	body := signedBytes(t, envWithEntries([]signer.Entry{validEntry("1.2.3.4/32", "1.2.3.4")}), testSecret)
+	if err := r.run(bytes.NewReader(body)); err == nil {
+		t.Fatal("expected an inbox-write failure")
+	}
+	// allow.txt must not be applied when an earlier write fails.
+	assertPreserved(t, cfg.OutputAllowTxt)
+}
+
 // assertPreserved fails if the seeded old allow.txt was changed.
 func assertPreserved(t *testing.T, path string) {
 	t.Helper()

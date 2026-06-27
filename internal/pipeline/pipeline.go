@@ -47,7 +47,9 @@ type Result struct {
 	CIDRs []string
 }
 
-// State is written to output_state_json after a successful export.
+// State is the metadata record written to output_state_json. WriteOutputs writes
+// it before the operative allow.txt, so it may briefly be a step ahead of
+// allow.txt if a later write fails.
 type State struct {
 	PulledAt  string         `json:"pulled_at"`
 	SourceURL string         `json:"source_url"`
@@ -112,18 +114,14 @@ func VerifyAndFilter(env *signer.Envelope, p Params, al *audit.Logger, now time.
 	return &Result{Kept: kept, CIDRs: cidrs}, nil
 }
 
-// WriteOutputs atomically writes allow.txt and (when OutputStateJSON is set) the
-// state json, then logs output.write.success. On any write error it logs
-// output.write.fail and returns the error without leaving partial output.
+// WriteOutputs writes the state json (when set) first and the operative
+// allow.txt LAST, both atomically, then logs output.write.success. allow.txt is
+// written last on purpose: a failure in any earlier step leaves the live
+// allow.txt unchanged, so a successful return means the new allow.txt was
+// applied and any error means it was not. The state json may be a step ahead of
+// allow.txt after such a failure; it is a debug record, not operative. On any
+// write error it logs output.write.fail and returns the error.
 func WriteOutputs(now time.Time, res *Result, p Params, al *audit.Logger) error {
-	txt := strings.Join(res.CIDRs, "\n")
-	if len(res.CIDRs) > 0 {
-		txt += "\n"
-	}
-	if err := AtomicWrite(p.OutputAllowTxt, []byte(txt), 0o600); err != nil {
-		al.Log(audit.ActionOutputWriteFail, audit.ResultError, map[string]interface{}{"reason": err.Error()})
-		return err
-	}
 	if p.OutputStateJSON != "" {
 		state := State{
 			PulledAt:  now.UTC().Format(time.RFC3339),
@@ -140,6 +138,14 @@ func WriteOutputs(now time.Time, res *Result, p Params, al *audit.Logger) error 
 			al.Log(audit.ActionOutputWriteFail, audit.ResultError, map[string]interface{}{"reason": err.Error()})
 			return err
 		}
+	}
+	txt := strings.Join(res.CIDRs, "\n")
+	if len(res.CIDRs) > 0 {
+		txt += "\n"
+	}
+	if err := AtomicWrite(p.OutputAllowTxt, []byte(txt), 0o600); err != nil {
+		al.Log(audit.ActionOutputWriteFail, audit.ResultError, map[string]interface{}{"reason": err.Error()})
+		return err
 	}
 	al.Log(audit.ActionOutputWriteOK, audit.ResultOK, map[string]interface{}{"entries": len(res.CIDRs), "path": p.OutputAllowTxt})
 	return nil

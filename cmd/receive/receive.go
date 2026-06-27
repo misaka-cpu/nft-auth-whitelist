@@ -25,10 +25,13 @@ func newReceiver(cfg *config.ReceiveConfig, al *audit.Logger) *receiver {
 	return &receiver{cfg: cfg, audit: al, now: time.Now, stdout: os.Stdout}
 }
 
-// run reads a signed allow.json from stdin, verifies it, and (only on success)
-// atomically writes the inbox copy and exports allow.txt + state json. On ANY
-// failure it returns an error without touching the existing inbox / allow.txt,
-// so the last good output is preserved. It never echoes the input or secrets.
+// run reads a signed allow.json from stdin, verifies it, then writes the inbox
+// copy, the state json, and the operative allow.txt — in that order, with
+// allow.txt LAST. Success means the new allow.txt was applied; on ANY failure
+// run returns an error and the live allow.txt is left unchanged (no new
+// allowlist is applied). The inbox/state records may be a step ahead of
+// allow.txt after a late failure — they are debug records, not operative. It
+// never echoes the input or secrets.
 func (r *receiver) run(stdin io.Reader) error {
 	now := r.now()
 
@@ -58,7 +61,12 @@ func (r *receiver) run(stdin io.Reader) error {
 		return err
 	}
 
-	// 10. Persist the verified envelope to the inbox, then export. Both atomic.
+	// 10. Persist the inbox copy first (a debug record), then export via
+	// WriteOutputs, which writes the state json and the operative allow.txt LAST.
+	// allow.txt is thus the final write: a failure in any earlier step leaves the
+	// live allow.txt unchanged (the command fails and applies no new allowlist).
+	// All writes are atomic. The inbox/state records may be one step ahead of
+	// allow.txt after a failure; they are records, not operative.
 	if err := pipeline.AtomicWrite(r.cfg.InboxAllowJSON, data, 0o600); err != nil {
 		r.audit.Log(audit.ActionOutputWriteFail, audit.ResultError, map[string]interface{}{"reason": err.Error()})
 		return err
