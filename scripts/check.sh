@@ -26,6 +26,9 @@ go build ./...
 echo "==> scripts/build.sh"
 bash scripts/build.sh
 
+echo "==> scripts/test-build.sh"
+bash scripts/test-build.sh
+
 echo "==> scripts/package.sh"
 bash scripts/package.sh
 

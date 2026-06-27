@@ -21,6 +21,13 @@ done
 DIST="dist"
 mkdir -p "$DIST"
 
+# build.sh produces host/cross-platform binaries only. Release archives are
+# produced by scripts/package.sh. Remove old archives up front so a fresh build
+# can never leave stale tarballs/checksums in dist/ or list them as fresh output.
+echo "==> remove stale release archives"
+rm -f "$DIST"/nft-auth-whitelist-linux-*.tar.gz \
+      "$DIST"/nft-auth-whitelist-linux-*.tar.gz.sha256
+
 echo "==> gofmt"
 fmt_out="$(gofmt -l .)"
 if [[ -n "$fmt_out" ]]; then

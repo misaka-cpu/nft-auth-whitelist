@@ -30,6 +30,7 @@ required_paths=(
   "scripts/preflight-push-target.sh"
   "scripts/check.sh"
   "scripts/install-release.sh"
+  "scripts/test-build.sh"
   "scripts/test-install.sh"
   "scripts/test-preflight.sh"
   "scripts/test-local-shadow.sh"
