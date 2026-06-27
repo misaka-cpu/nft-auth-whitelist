@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/misaka-cpu/nft-auth-whitelist/internal/clientip"
@@ -384,6 +385,15 @@ func LoadPullerConfig(path string) (*PullerConfig, error) {
 	return c, nil
 }
 
+// samePath reports whether two configured file paths refer to the same file
+// after lexical cleaning. Empty paths are treated as unset and never collide.
+func samePath(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	return filepath.Clean(a) == filepath.Clean(b)
+}
+
 // Validate checks required fields for the puller. Required fields depend on the
 // source: "http" needs server_url + pull_token, "file" needs input_allow_json.
 // hmac_secret and output_allow_txt are always required so the file-source path
@@ -430,6 +440,15 @@ func (c *PullerConfig) Validate() error {
 	}
 	if err := c.NFT.validate(); err != nil {
 		return err
+	}
+	// Keep the operative allow.txt distinct from the secondary records so a state
+	// (or file-source input) write can never clobber it.
+	if samePath(c.OutputStateJSON, c.OutputAllowTxt) {
+		return fmt.Errorf("output_state_json must not equal output_allow_txt")
+	}
+	if c.Source == "file" &&
+		(samePath(c.InputAllowJSON, c.OutputAllowTxt) || samePath(c.InputAllowJSON, c.OutputStateJSON)) {
+		return fmt.Errorf("input_allow_json must not equal output_allow_txt or output_state_json")
 	}
 	return nil
 }
@@ -493,6 +512,14 @@ func (c *ReceiveConfig) Validate() error {
 	}
 	if err := c.NFT.validate(); err != nil {
 		return err
+	}
+	// The inbox copy, state json, and the operative allow.txt must be three
+	// distinct files; otherwise the "allow.txt written last" safety is broken and
+	// a debug write could clobber the operative allowlist.
+	if samePath(c.InboxAllowJSON, c.OutputAllowTxt) ||
+		samePath(c.OutputStateJSON, c.OutputAllowTxt) ||
+		samePath(c.InboxAllowJSON, c.OutputStateJSON) {
+		return fmt.Errorf("inbox_allow_json, output_allow_txt and output_state_json must be three distinct paths")
 	}
 	return nil
 }

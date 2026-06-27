@@ -405,3 +405,80 @@ func TestNFTConfigRejectsOtherTablesAndInvalidPorts(t *testing.T) {
 		}
 	}
 }
+
+func validReceiveConfig() *ReceiveConfig {
+	return &ReceiveConfig{
+		InputMaxBytes:   1 << 20,
+		InboxAllowJSON:  "/var/lib/nft-auth-whitelist/inbox/allow.json",
+		HMACSecret:      validHMACSecret,
+		OutputAllowTxt:  "/var/lib/nft-auth-whitelist/allow.txt",
+		OutputStateJSON: "/var/lib/nft-auth-whitelist/pulled-state.json",
+		MaxEntries:      10,
+		AllowIPv4:       true,
+		Mode:            "export",
+		NFT:             NFTConfig{Table: "nft_auth_whitelist"},
+	}
+}
+
+func TestReceiveConfigRejectsCollidingPaths(t *testing.T) {
+	if err := validReceiveConfig().Validate(); err != nil {
+		t.Fatalf("valid receive config should pass, got %v", err)
+	}
+	for name, mutate := range map[string]func(*ReceiveConfig){
+		"inbox == allow.txt": func(c *ReceiveConfig) { c.InboxAllowJSON = c.OutputAllowTxt },
+		"state == allow.txt": func(c *ReceiveConfig) { c.OutputStateJSON = c.OutputAllowTxt },
+		"inbox == state":     func(c *ReceiveConfig) { c.InboxAllowJSON = c.OutputStateJSON },
+		"equal after clean":  func(c *ReceiveConfig) { c.InboxAllowJSON = "/var/lib/nft-auth-whitelist/./allow.txt" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := validReceiveConfig()
+			mutate(c)
+			if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "distinct") {
+				t.Fatalf("expected distinct-paths error, got %v", err)
+			}
+		})
+	}
+}
+
+func TestPullerConfigRejectsStateEqualsAllowTxt(t *testing.T) {
+	c := validPullerConfig()
+	c.OutputStateJSON = c.OutputAllowTxt
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "output_state_json must not equal output_allow_txt") {
+		t.Fatalf("expected state==allow.txt error, got %v", err)
+	}
+
+	// An empty output_state_json is optional and must not be treated as a collision.
+	c2 := validPullerConfig()
+	c2.OutputStateJSON = ""
+	if err := c2.Validate(); err != nil {
+		t.Fatalf("empty output_state_json should be allowed, got %v", err)
+	}
+}
+
+func TestPullerFileSourceRejectsInputCollisions(t *testing.T) {
+	newCfg := func() *PullerConfig {
+		c := validPullerConfig()
+		c.Source = "file"
+		c.ServerURL = ""
+		c.PullToken = ""
+		c.InputAllowJSON = "/var/lib/nft-auth-whitelist/inbox/allow.json"
+		c.OutputAllowTxt = "/var/lib/nft-auth-whitelist/allow.txt"
+		c.OutputStateJSON = "/var/lib/nft-auth-whitelist/state.json"
+		return c
+	}
+	if err := newCfg().Validate(); err != nil {
+		t.Fatalf("valid file-source config should pass, got %v", err)
+	}
+
+	c1 := newCfg()
+	c1.InputAllowJSON = c1.OutputAllowTxt
+	if err := c1.Validate(); err == nil || !strings.Contains(err.Error(), "input_allow_json must not equal") {
+		t.Fatalf("input == allow.txt: got %v", err)
+	}
+
+	c2 := newCfg()
+	c2.InputAllowJSON = c2.OutputStateJSON
+	if err := c2.Validate(); err == nil || !strings.Contains(err.Error(), "input_allow_json must not equal") {
+		t.Fatalf("input == state: got %v", err)
+	}
+}
