@@ -120,3 +120,19 @@ func (s *server) redactSecrets(in string) string {
 func secretValues(c *config.ServerConfig) []string {
 	return []string{c.HMACSecret, c.PullToken, c.Password}
 }
+
+// purgeAndSync removes expired entries and, when push is enabled and the purge
+// actually removed something, proactively pushes the (now smaller) allowlist to
+// the receivers so expired IPs stop being allowed there. It is called from the
+// background purge ticker — off the auth request path — so it may push
+// synchronously without affecting any HTTP response. It returns the purged CIDRs.
+func (s *server) purgeAndSync(now time.Time) []string {
+	removed := s.store.Purge(now)
+	for _, cidr := range removed {
+		s.audit.Log(audit.ActionEntryExpire, audit.ResultOK, map[string]interface{}{"cidr": cidr})
+	}
+	if len(removed) > 0 && s.cfg.Push.Enabled {
+		s.doPush(now)
+	}
+	return removed
+}

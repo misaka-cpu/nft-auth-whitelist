@@ -173,3 +173,43 @@ while :; do :; done`, countFile))
 		t.Fatalf("fake ssh should run once, ran %d times", len(b))
 	}
 }
+
+func TestPurgeSyncPushesAfterExpiry(t *testing.T) {
+	fake := writeFakeSSH(t, `cat >/dev/null; echo "ok entries=0 output=/var/lib/nft-auth-whitelist/allow.txt"; exit 0`)
+	srv, audit := pushServer(t, fake)
+
+	// Seed an entry with a short TTL directly in the store.
+	base := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
+	if _, err := srv.store.Record("9.9.9.9/32", "9.9.9.9", "web_auth", base, time.Second); err != nil {
+		t.Fatal(err)
+	}
+
+	// A background purge well after expiry must drop it AND push the smaller list.
+	removed := srv.purgeAndSync(base.Add(time.Hour))
+	if len(removed) != 1 || removed[0] != "9.9.9.9/32" {
+		t.Fatalf("purge should remove the expired entry, got %v", removed)
+	}
+	a := audit.String()
+	if !strings.Contains(a, "entry.expire") {
+		t.Fatalf("audit must record entry.expire, got %s", a)
+	}
+	if !strings.Contains(a, "push.start") || !strings.Contains(a, "push.success") {
+		t.Fatalf("a purge that removed entries must trigger a push, got %s", a)
+	}
+}
+
+func TestPurgeSyncNoPushWhenNothingExpired(t *testing.T) {
+	fake := writeFakeSSH(t, `cat >/dev/null; echo ok; exit 0`)
+	srv, audit := pushServer(t, fake)
+
+	now := time.Now()
+	if _, err := srv.store.Record("1.2.3.4/32", "1.2.3.4", "web_auth", now, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if removed := srv.purgeAndSync(now.Add(time.Minute)); len(removed) != 0 {
+		t.Fatalf("nothing should be purged, got %v", removed)
+	}
+	if strings.Contains(audit.String(), "push.start") {
+		t.Fatal("a purge that removed nothing must not push")
+	}
+}

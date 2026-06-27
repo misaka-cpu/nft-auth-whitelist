@@ -52,7 +52,8 @@ func main() {
 
 	srv := newServer(cfg, st, al)
 
-	// Background purge of expired entries.
+	// Background purge of expired entries; in push mode a purge that removed
+	// entries also proactively syncs the smaller allowlist to the receivers.
 	stopPurge := make(chan struct{})
 	go func() {
 		t := time.NewTicker(time.Minute)
@@ -62,9 +63,7 @@ func main() {
 			case <-stopPurge:
 				return
 			case <-t.C:
-				for _, cidr := range st.Purge(time.Now()) {
-					al.Log(audit.ActionEntryExpire, audit.ResultOK, map[string]interface{}{"cidr": cidr})
-				}
+				srv.purgeAndSync(time.Now())
 			}
 		}
 	}()
