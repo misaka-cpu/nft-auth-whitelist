@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shell tests for v0.6.0 production preflight scripts. Tests use only temp
+# Shell tests for v0.6.1 production preflight scripts. Tests use only temp
 # directories and fake ssh; they do not connect to public hosts or modify system
 # SSH/nft configuration.
 set -uo pipefail

@@ -45,7 +45,7 @@ go test ./...
 # Single-source the default version from internal/version/version.go so the
 # tarball/ldflags version cannot drift from the value compiled into --version.
 DEFAULT_VERSION="$(sed -n 's/.*Version = "\([^"]*\)".*/\1/p' internal/version/version.go | head -n1)"
-VERSION="${VERSION:-${DEFAULT_VERSION:-0.6.0}}"
+VERSION="${VERSION:-${DEFAULT_VERSION:-0.6.1}}"
 COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo dev)"
 DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 LDFLAGS="-s -w \

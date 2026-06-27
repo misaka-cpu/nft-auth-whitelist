@@ -30,7 +30,7 @@ All other arguments are passed through to the packaged ./install.sh.
 
 Examples:
   sudo bash scripts/install-release.sh --role auth-server
-  sudo bash scripts/install-release.sh --version v0.6.0 --role receive
+  sudo bash scripts/install-release.sh --version v0.6.1 --role receive
   sudo bash scripts/install-release.sh --role receive --install-authorized-key /tmp/push.pub
 EOF
 }
