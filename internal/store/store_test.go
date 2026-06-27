@@ -1,8 +1,6 @@
 package store
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 )
@@ -136,7 +134,7 @@ func TestPersistReload(t *testing.T) {
 	}
 }
 
-func TestRecordRefreshDoesNotRewritePersistedFile(t *testing.T) {
+func TestRecordRefreshPersistsExpiresAt(t *testing.T) {
 	dir := t.TempDir()
 	s, err := New(dir, 10)
 	if err != nil {
@@ -146,24 +144,29 @@ func TestRecordRefreshDoesNotRewritePersistedFile(t *testing.T) {
 	if _, err := s.Record("1.2.3.4/32", "1.2.3.4", "web_auth", now, time.Hour); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(dir, "entries.json")
-	before, err := os.ReadFile(path)
+
+	// Re-auth before expiry: the refresh must extend AND persist expires_at.
+	later := now.Add(30 * time.Minute)
+	res, err := s.Record("1.2.3.4/32", "1.2.3.4", "web_auth", later, time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err := s.Record("1.2.3.4/32", "1.2.3.4", "web_auth", now.Add(time.Minute), time.Hour); err != nil {
-		t.Fatal(err)
-	}
-	after, err := os.ReadFile(path)
+	// A restart (reload from disk) must keep the refreshed expires_at, not the
+	// original one.
+	reloaded, err := New(dir, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(after) != string(before) {
-		t.Fatal("pure refresh should update memory without rewriting persisted store")
+	snap := reloaded.Snapshot(later)
+	if len(snap) != 1 {
+		t.Fatalf("want 1 entry after reload, got %d", len(snap))
 	}
-	if got := s.Snapshot(now.Add(time.Minute))[0].HitCount; got != 2 {
-		t.Fatalf("in-memory hit_count = %d, want 2", got)
+	if !snap[0].ExpiresAt.Equal(res.Entry.ExpiresAt) {
+		t.Fatalf("reloaded expires_at = %s, want refreshed %s", snap[0].ExpiresAt, res.Entry.ExpiresAt)
+	}
+	if snap[0].HitCount != 2 {
+		t.Fatalf("reloaded hit_count = %d, want 2", snap[0].HitCount)
 	}
 }
 

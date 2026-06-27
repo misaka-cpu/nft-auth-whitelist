@@ -78,9 +78,8 @@ type RecordResult struct {
 
 // Record adds or refreshes the entry for cidr/ip. On refresh it bumps
 // LastSeenAt, HitCount and ExpiresAt. It then enforces max_entries (expired
-// first, then least-recently-seen). New entries, revived expired entries, and
-// evictions are persisted immediately; pure refreshes stay in memory to avoid
-// an fsync on every authenticated page refresh.
+// first, then least-recently-seen) and persists, so a refreshed expires_at
+// survives a restart.
 func (s *Store) Record(cidr, ip, source string, now time.Time, ttl time.Duration) (RecordResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -88,12 +87,8 @@ func (s *Store) Record(cidr, ip, source string, now time.Time, ttl time.Duration
 	now = now.UTC().Truncate(time.Second)
 	exp := now.Add(ttl).Truncate(time.Second)
 
-	needsPersist := false
 	var res RecordResult
 	if e, ok := s.entries[cidr]; ok {
-		if !e.ExpiresAt.After(now) {
-			needsPersist = true
-		}
 		e.LastSeenAt = now
 		e.ExpiresAt = exp
 		e.HitCount++
@@ -112,17 +107,11 @@ func (s *Store) Record(cidr, ip, source string, now time.Time, ttl time.Duration
 		s.entries[cidr] = e
 		res.Entry = *e
 		res.IsNew = true
-		needsPersist = true
 	}
 
 	res.Evicted = s.enforceLimitLocked(now)
-	if len(res.Evicted) > 0 {
-		needsPersist = true
-	}
-	if needsPersist {
-		if err := s.persistLocked(); err != nil {
-			return res, err
-		}
+	if err := s.persistLocked(); err != nil {
+		return res, err
 	}
 	return res, nil
 }
