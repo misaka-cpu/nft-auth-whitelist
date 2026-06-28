@@ -4,6 +4,22 @@
 
 用户在 RFC 内网机器上经 HTTPS 认证页登录，auth-server 记录其真实来源公网 IP（带 TTL，默认 `/32`）并签名导出；国内 po0 机器拿到这份白名单，写成本地 `allow.txt`，主项目读它放行。纯 Go 标准库实现，静态编译、依赖少。
 
+## 新手部署入口
+
+第一次部署请先看 [公开部署教程](./docs/public-deployment.md)：它按“RFC 内网机器 + Cloudflare Access + po0 receive + SSH push + 防火墙验证”的顺序，从空机器走到可验证上线。
+
+只想安装最新 Release，可以直接用一键安装脚本。脚本只下载、校验、复制文件；不会自动启动服务、不会改 nft、不会改 SSH 防火墙。
+
+```bash
+# RFC 内网机器
+curl -fsSL https://raw.githubusercontent.com/misaka-cpu/nft-auth-whitelist/main/scripts/install-release.sh \
+  | sudo bash -s -- --role auth-server
+
+# po0
+curl -fsSL https://raw.githubusercontent.com/misaka-cpu/nft-auth-whitelist/main/scripts/install-release.sh \
+  | sudo bash -s -- --role receive
+```
+
 ## 三个二进制
 
 | 二进制 | 跑在 | 职责 |
@@ -99,7 +115,7 @@ puller / receive 默认 `export` 模式，**默认不执行**任何 `nft` 命令
 ```bash
 curl -fsSL https://raw.githubusercontent.com/misaka-cpu/nft-auth-whitelist/main/scripts/install-release.sh \
   | sudo bash -s -- --role auth-server        # 或 --role receive / puller
-# 指定版本：在 -s -- 后加 --version v0.6.1
+# 指定版本：在 -s -- 后加 --version v0.6.2
 ```
 
 或从源码构建：
