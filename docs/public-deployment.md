@@ -40,7 +40,7 @@
 | `RFC_PUBLIC_IP` | RFC 内网机器公网 IP |
 | `PO0_PUBLIC_IP` | po0 公网 IP |
 | `PO0_SSH_PORT` | po0 上给 `nftauth` forced command 使用的 SSH 端口 |
-| `FORWARD_PORT` | po0 对外转发端口，例如 `32941` |
+| `FORWARD_PORT` | po0 对外转发端口，例如 `40000` |
 | `TARGET_PORT` | RFC 内网机器上的真实服务端口 |
 | `PO0_SOURCE_SEEN_BY_RFC` | RFC 内网机器看到的 po0 出站源地址 |
 
