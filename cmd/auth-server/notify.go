@@ -3,7 +3,9 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"sort"
 	"sync"
 	"time"
 
@@ -18,6 +20,7 @@ import (
 // reason only.
 type notifier struct {
 	url    string
+	chatID string
 	client *http.Client
 	audit  *audit.Logger
 	wg     sync.WaitGroup
@@ -26,9 +29,36 @@ type notifier struct {
 func newNotifier(cfg config.NotifyConfig, al *audit.Logger) *notifier {
 	return &notifier{
 		url:    cfg.WebhookURL,
+		chatID: cfg.TelegramChatID,
 		client: &http.Client{Timeout: time.Duration(cfg.TimeoutSeconds) * time.Second},
 		audit:  al,
 	}
+}
+
+// payload builds the request body: the generic {event,time,detail} JSON, or —
+// when telegram_chat_id is configured — the Telegram Bot API sendMessage shape
+// {"chat_id","text"} with the detail flattened into sorted "key: value" lines.
+func (n *notifier) payload(event string, detail map[string]interface{}) ([]byte, error) {
+	if n.chatID == "" {
+		return json.Marshal(map[string]interface{}{
+			"event":  event,
+			"time":   time.Now().UTC().Format(time.RFC3339),
+			"detail": detail,
+		})
+	}
+	keys := make([]string, 0, len(detail))
+	for k := range detail {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	text := "nft-auth-whitelist: " + event
+	for _, k := range keys {
+		text += fmt.Sprintf("\n%s: %v", k, detail[k])
+	}
+	return json.Marshal(map[string]interface{}{
+		"chat_id": n.chatID,
+		"text":    text,
+	})
 }
 
 // Notify sends one event asynchronously. detail must not contain secrets.
@@ -36,11 +66,7 @@ func (n *notifier) Notify(event string, detail map[string]interface{}) {
 	if n.url == "" {
 		return
 	}
-	body, err := json.Marshal(map[string]interface{}{
-		"event":  event,
-		"time":   time.Now().UTC().Format(time.RFC3339),
-		"detail": detail,
-	})
+	body, err := n.payload(event, detail)
 	if err != nil {
 		return
 	}

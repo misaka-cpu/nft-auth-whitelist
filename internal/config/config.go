@@ -67,8 +67,12 @@ func (p PushConfig) ReconcileInterval() time.Duration {
 // NotifyConfig is the optional, default-off outbound webhook. When webhook_url
 // is set, the auth-server POSTs a small JSON event for new whitelist entries
 // and push failures. The URL may embed a bot token, so it is never logged.
+// Setting telegram_chat_id switches the payload to the Telegram Bot API shape
+// ({"chat_id","text"}), for a webhook_url like
+// https://api.telegram.org/bot<TOKEN>/sendMessage.
 type NotifyConfig struct {
 	WebhookURL     string `json:"webhook_url"`
+	TelegramChatID string `json:"telegram_chat_id"`
 	TimeoutSeconds int    `json:"timeout_seconds"`
 }
 

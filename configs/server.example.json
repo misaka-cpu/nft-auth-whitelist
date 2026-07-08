@@ -27,6 +27,7 @@
   },
   "notify": {
     "webhook_url": "",
+    "telegram_chat_id": "",
     "timeout_seconds": 5
   },
   "push": {

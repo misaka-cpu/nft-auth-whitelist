@@ -123,6 +123,43 @@ func TestNotifyPushFailSends(t *testing.T) {
 	}
 }
 
+func TestNotifyTelegramPayloadShape(t *testing.T) {
+	hook := newWebhookRecorder(t)
+	srv, _ := testServer(t, func(c *config.ServerConfig) {
+		c.Notify = config.NotifyConfig{
+			WebhookURL:     hook.ts.URL,
+			TelegramChatID: "810981110",
+			TimeoutSeconds: 5,
+		}
+	})
+
+	if rec := authSuccess(t, srv); rec.Code != http.StatusOK {
+		t.Fatalf("got %d", rec.Code)
+	}
+	srv.notify.wait()
+
+	got := hook.all()
+	if len(got) != 1 {
+		t.Fatalf("want exactly 1 webhook call, got %d", len(got))
+	}
+	var msg struct {
+		ChatID string `json:"chat_id"`
+		Text   string `json:"text"`
+	}
+	if err := json.Unmarshal([]byte(got[0]), &msg); err != nil {
+		t.Fatalf("telegram body is not JSON: %v", err)
+	}
+	if msg.ChatID != "810981110" {
+		t.Fatalf("chat_id = %q, want 810981110", msg.ChatID)
+	}
+	if !strings.Contains(msg.Text, "entry.new") || !strings.Contains(msg.Text, "1.2.3.4/32") {
+		t.Fatalf("text must contain the event and cidr, got %q", msg.Text)
+	}
+	if strings.Contains(got[0], `"event"`) {
+		t.Fatal("telegram payload must not use the generic shape")
+	}
+}
+
 func TestNotifyDisabledSendsNothing(t *testing.T) {
 	srv, _ := testServer(t, nil) // notify not configured
 	if rec := authSuccess(t, srv); rec.Code != http.StatusOK {
