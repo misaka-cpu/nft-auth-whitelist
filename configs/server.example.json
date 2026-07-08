@@ -25,6 +25,10 @@
     "enabled": true,
     "max_failures_per_minute": 10
   },
+  "notify": {
+    "webhook_url": "",
+    "timeout_seconds": 5
+  },
   "push": {
     "enabled": false,
     "timeout_seconds": 10,

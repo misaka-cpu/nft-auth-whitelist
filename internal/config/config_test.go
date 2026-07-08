@@ -259,6 +259,45 @@ func TestLoadServerConfigFreezeFileFollowsDataDir(t *testing.T) {
 	}
 }
 
+func TestLoadServerConfigNotifyDefaults(t *testing.T) {
+	c, err := LoadServerConfig(writeTempConfig(t, serverJSON("")))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if c.Notify.WebhookURL != "" {
+		t.Fatal("notify must default disabled")
+	}
+	if c.Notify.TimeoutSeconds != 5 {
+		t.Fatalf("notify timeout default = %d, want 5", c.Notify.TimeoutSeconds)
+	}
+}
+
+func TestNotifyWebhookURLValidation(t *testing.T) {
+	cases := []struct {
+		url string
+		ok  bool
+	}{
+		{"", true},
+		{"https://api.telegram.org/botTOKEN/sendMessage", true},
+		{"http://127.0.0.1:8099/hook", true},
+		{"http://localhost:8099/hook", true},
+		{"http://example.com/hook", false},
+		{"ftp://example.com/hook", false},
+		{"not a url", false},
+	}
+	for _, tc := range cases {
+		c := validServerConfig()
+		c.Notify = NotifyConfig{WebhookURL: tc.url, TimeoutSeconds: 5}
+		err := c.Validate()
+		if tc.ok && err != nil {
+			t.Errorf("url %q should be accepted, got %v", tc.url, err)
+		}
+		if !tc.ok && (err == nil || !strings.Contains(err.Error(), "webhook_url")) {
+			t.Errorf("url %q should be rejected with a webhook_url error, got %v", tc.url, err)
+		}
+	}
+}
+
 func TestLoadServerConfigPushEnabledEmptyTargets(t *testing.T) {
 	push := `"push": {"enabled": true, "targets": []}`
 	_, err := LoadServerConfig(writeTempConfig(t, serverJSON(push)))

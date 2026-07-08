@@ -31,6 +31,7 @@ type server struct {
 	now     func() time.Time
 	limiter *failureLimiter
 	pusher  sshpush.Pusher
+	notify  *notifier
 }
 
 func newServer(cfg *config.ServerConfig, st *store.Store, al *audit.Logger) *server {
@@ -45,6 +46,7 @@ func newServer(cfg *config.ServerConfig, st *store.Store, al *audit.Logger) *ser
 		now:     time.Now,
 		limiter: newFailureLimiter(cfg.RateLimit),
 		pusher:  sshpush.Pusher{}, // SSHPath defaults to "ssh"
+		notify:  newNotifier(cfg.Notify, al),
 	}
 }
 
@@ -209,6 +211,12 @@ func (s *server) handleRoot(w http.ResponseWriter, r *http.Request) {
 	action := audit.ActionEntryRefresh
 	if res.IsNew {
 		action = audit.ActionEntryAdd
+		// Only genuinely new entries notify; refreshes would be noise.
+		s.notify.Notify("entry.new", map[string]interface{}{
+			"cidr":       res.Entry.CIDR,
+			"source":     "web_auth",
+			"expires_at": res.Entry.ExpiresAt.Format(time.RFC3339),
+		})
 	}
 	s.audit.Log(action, audit.ResultOK, map[string]interface{}{
 		"cidr":       res.Entry.CIDR,

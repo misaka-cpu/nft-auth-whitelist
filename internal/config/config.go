@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -63,27 +64,36 @@ func (p PushConfig) ReconcileInterval() time.Duration {
 	return time.Duration(*p.ReconcileIntervalSeconds) * time.Second
 }
 
+// NotifyConfig is the optional, default-off outbound webhook. When webhook_url
+// is set, the auth-server POSTs a small JSON event for new whitelist entries
+// and push failures. The URL may embed a bot token, so it is never logged.
+type NotifyConfig struct {
+	WebhookURL     string `json:"webhook_url"`
+	TimeoutSeconds int    `json:"timeout_seconds"`
+}
+
 // ServerConfig is the auth-server configuration.
 type ServerConfig struct {
-	Listen              string     `json:"listen"`
-	BaseURL             string     `json:"base_url"`
-	Username            string     `json:"username"`
-	Password            string     `json:"password"`
-	PullToken           string     `json:"pull_token"`
-	HMACSecret          string     `json:"hmac_secret"`
-	TTLSeconds          int        `json:"ttl_seconds"`
-	MaxEntries          int        `json:"max_entries"`
-	AllowIPv4           bool       `json:"allow_ipv4"`
-	AllowIPv6           bool       `json:"allow_ipv6"`
-	AllowCIDRExpandIPv4 bool       `json:"allow_cidr_expand_ipv4"`
-	TrustedProxyCIDRs   []string   `json:"trusted_proxy_cidrs"`
-	ClientIPHeaders     []string   `json:"client_ip_headers"`
-	TrustedProxies      []string   `json:"trusted_proxies"` // legacy: use trusted_proxy_cidrs
-	RealIPHeader        string     `json:"real_ip_header"`  // legacy: use client_ip_headers
-	DataDir             string     `json:"data_dir"`
-	AuditLog            string     `json:"audit_log"`
-	RateLimit           RateLimit  `json:"rate_limit"`
-	Push                PushConfig `json:"push"`
+	Listen              string       `json:"listen"`
+	BaseURL             string       `json:"base_url"`
+	Username            string       `json:"username"`
+	Password            string       `json:"password"`
+	PullToken           string       `json:"pull_token"`
+	HMACSecret          string       `json:"hmac_secret"`
+	TTLSeconds          int          `json:"ttl_seconds"`
+	MaxEntries          int          `json:"max_entries"`
+	AllowIPv4           bool         `json:"allow_ipv4"`
+	AllowIPv6           bool         `json:"allow_ipv6"`
+	AllowCIDRExpandIPv4 bool         `json:"allow_cidr_expand_ipv4"`
+	TrustedProxyCIDRs   []string     `json:"trusted_proxy_cidrs"`
+	ClientIPHeaders     []string     `json:"client_ip_headers"`
+	TrustedProxies      []string     `json:"trusted_proxies"` // legacy: use trusted_proxy_cidrs
+	RealIPHeader        string       `json:"real_ip_header"`  // legacy: use client_ip_headers
+	DataDir             string       `json:"data_dir"`
+	AuditLog            string       `json:"audit_log"`
+	RateLimit           RateLimit    `json:"rate_limit"`
+	Push                PushConfig   `json:"push"`
+	Notify              NotifyConfig `json:"notify"`
 	// FreezeFile is an emergency brake: while this file exists, / rejects all
 	// (even authenticated) requests with 503 and records nothing, so an operator
 	// can stop automatic whitelisting with `touch` and resume with `rm` — no
@@ -182,6 +192,9 @@ func LoadServerConfig(path string) (*ServerConfig, error) {
 	}
 	if c.FreezeFile == "" {
 		c.FreezeFile = filepath.Join(c.DataDir, "freeze")
+	}
+	if c.Notify.TimeoutSeconds <= 0 {
+		c.Notify.TimeoutSeconds = 5
 	}
 	for i := range c.Push.Targets {
 		if c.Push.Targets[i].Port == 0 {
@@ -330,6 +343,33 @@ func (c *ServerConfig) Validate() error {
 	}
 	if err := c.Push.validate(); err != nil {
 		return err
+	}
+	if err := c.Notify.validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validate checks the webhook URL when notify is enabled. Plain http is only
+// accepted towards loopback (local relays, tests); anything remote must be
+// https so the embedded token cannot travel in cleartext.
+func (n NotifyConfig) validate() error {
+	if n.WebhookURL == "" {
+		return nil
+	}
+	u, err := url.Parse(n.WebhookURL)
+	if err != nil || u.Host == "" {
+		return fmt.Errorf("notify.webhook_url is not a valid URL")
+	}
+	switch u.Scheme {
+	case "https":
+	case "http":
+		host := u.Hostname()
+		if host != "localhost" && !net.ParseIP(host).IsLoopback() {
+			return fmt.Errorf("notify.webhook_url must use https (plain http is only allowed towards loopback)")
+		}
+	default:
+		return fmt.Errorf("notify.webhook_url must use https (plain http is only allowed towards loopback)")
 	}
 	return nil
 }

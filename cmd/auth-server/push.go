@@ -96,6 +96,9 @@ func (s *server) doPushWithBudget(now time.Time, budget time.Duration) []sshpush
 				"target": t.Name, "host": t.Host, "port": t.Port,
 				"duration_ms": r.DurationMs, "reason": r.Reason, "exit_status": r.ExitStatus,
 			})
+			s.notify.Notify("push.fail", map[string]interface{}{
+				"target": t.Name, "reason": r.Reason,
+			})
 		}
 		results = append(results, r)
 	}

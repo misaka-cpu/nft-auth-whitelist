@@ -36,6 +36,7 @@ const (
 	ActionNFTApplyFail    = "nft.apply.fail"
 	ActionRateLimited     = "auth.rate_limited"
 	ActionAuthFrozen      = "auth.frozen"
+	ActionNotifyFail      = "notify.fail"
 )
 
 // Result values.
