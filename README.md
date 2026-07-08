@@ -122,7 +122,7 @@ puller / receive 默认 `export` 模式，**默认不执行**任何 `nft` 命令
 ```bash
 curl -fsSL https://raw.githubusercontent.com/misaka-cpu/nft-auth-whitelist/main/scripts/install-release.sh \
   | sudo bash -s -- --role auth-server        # 或 --role receive / puller
-# 指定版本：在 -s -- 后加 --version v0.6.2
+# 指定版本：在 -s -- 后加 --version v0.7.0
 ```
 
 或从源码构建：
