@@ -84,6 +84,11 @@ type ServerConfig struct {
 	AuditLog            string     `json:"audit_log"`
 	RateLimit           RateLimit  `json:"rate_limit"`
 	Push                PushConfig `json:"push"`
+	// FreezeFile is an emergency brake: while this file exists, / rejects all
+	// (even authenticated) requests with 503 and records nothing, so an operator
+	// can stop automatic whitelisting with `touch` and resume with `rm` — no
+	// restart needed. Defaults to <data_dir>/freeze.
+	FreezeFile string `json:"freeze_file"`
 }
 
 // NFTConfig is the optional, default-off nft guard configuration.
@@ -174,6 +179,9 @@ func LoadServerConfig(path string) (*ServerConfig, error) {
 	}
 	if c.Push.TimeoutSeconds <= 0 {
 		c.Push.TimeoutSeconds = 10
+	}
+	if c.FreezeFile == "" {
+		c.FreezeFile = filepath.Join(c.DataDir, "freeze")
 	}
 	for i := range c.Push.Targets {
 		if c.Push.Targets[i].Port == 0 {

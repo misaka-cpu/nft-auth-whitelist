@@ -5,6 +5,7 @@ import (
 	"html"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -55,6 +56,17 @@ func (s *server) Handler() http.Handler {
 	mux.HandleFunc("/allow.txt", s.handleAllowTxt)
 	mux.HandleFunc("/health", s.handleHealth)
 	return mux
+}
+
+// frozen reports whether the operator's freeze file exists. Any stat error
+// other than existence counts as not frozen: the brake must never be able to
+// take the service down on its own.
+func (s *server) frozen() bool {
+	if s.cfg.FreezeFile == "" {
+		return false
+	}
+	_, err := os.Stat(s.cfg.FreezeFile)
+	return err == nil
 }
 
 func (s *server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -113,6 +125,20 @@ func (s *server) handleRoot(w http.ResponseWriter, r *http.Request) {
 		})
 		w.Header().Set("WWW-Authenticate", `Basic realm="nft-auth-whitelist"`)
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Emergency freeze: while the freeze file exists, nothing is recorded and
+	// even authenticated users only see 503. Checked after auth so the freeze
+	// state is not observable without credentials.
+	if s.frozen() {
+		s.audit.Log(audit.ActionAuthFrozen, audit.ResultWarn, map[string]interface{}{
+			"peer":      peer,
+			"remote_ip": peer,
+			"path":      r.URL.Path,
+			"status":    http.StatusServiceUnavailable,
+		})
+		http.Error(w, "authentication is temporarily frozen by the operator", http.StatusServiceUnavailable)
 		return
 	}
 

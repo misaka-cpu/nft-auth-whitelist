@@ -19,6 +19,7 @@
   "trusted_proxies": [],
   "real_ip_header": "",
   "data_dir": "/var/lib/nft-auth-whitelist",
+  "freeze_file": "/var/lib/nft-auth-whitelist/freeze",
   "audit_log": "/var/log/nft-auth-whitelist/server-audit.log",
   "rate_limit": {
     "enabled": true,

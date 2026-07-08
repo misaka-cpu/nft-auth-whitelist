@@ -239,6 +239,26 @@ func TestLoadServerConfigReconcileIntervalNegativeRejected(t *testing.T) {
 	}
 }
 
+func TestLoadServerConfigFreezeFileDefault(t *testing.T) {
+	c, err := LoadServerConfig(writeTempConfig(t, serverJSON("")))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if c.FreezeFile != "/var/lib/nft-auth-whitelist/freeze" {
+		t.Fatalf("freeze_file default = %q, want <data_dir>/freeze", c.FreezeFile)
+	}
+}
+
+func TestLoadServerConfigFreezeFileFollowsDataDir(t *testing.T) {
+	c, err := LoadServerConfig(writeTempConfig(t, serverJSON(`"data_dir": "/srv/nftauth"`)))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if c.FreezeFile != "/srv/nftauth/freeze" {
+		t.Fatalf("freeze_file = %q, want /srv/nftauth/freeze", c.FreezeFile)
+	}
+}
+
 func TestLoadServerConfigPushEnabledEmptyTargets(t *testing.T) {
 	push := `"push": {"enabled": true, "targets": []}`
 	_, err := LoadServerConfig(writeTempConfig(t, serverJSON(push)))
