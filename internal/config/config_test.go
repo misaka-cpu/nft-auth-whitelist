@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/misaka-cpu/nft-auth-whitelist/internal/clientip"
 )
@@ -177,6 +178,64 @@ func TestLoadServerConfigPushStrictExplicitFalse(t *testing.T) {
 	}
 	if c.Push.Targets[0].StrictHostKey() {
 		t.Fatal("explicit strict_host_key_checking=false must be honoured")
+	}
+}
+
+func TestLoadServerConfigReconcileIntervalDefault(t *testing.T) {
+	c, err := LoadServerConfig(writeTempConfig(t, serverJSON("")))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got := c.Push.ReconcileInterval(); got != 30*time.Minute {
+		t.Fatalf("reconcile interval default = %s, want 30m", got)
+	}
+}
+
+func TestLoadServerConfigReconcileIntervalExplicit(t *testing.T) {
+	push := `"push": {
+	    "enabled": true,
+	    "reconcile_interval_seconds": 600,
+	    "targets": [
+	      {"name": "t1", "user": "nftauth", "host": "1.2.3.4", "identity_file": "/k", "known_hosts_file": "/known-hosts"}
+	    ]
+	  }`
+	c, err := LoadServerConfig(writeTempConfig(t, serverJSON(push)))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got := c.Push.ReconcileInterval(); got != 10*time.Minute {
+		t.Fatalf("reconcile interval = %s, want 10m", got)
+	}
+}
+
+func TestLoadServerConfigReconcileIntervalZeroDisables(t *testing.T) {
+	push := `"push": {
+	    "enabled": true,
+	    "reconcile_interval_seconds": 0,
+	    "targets": [
+	      {"name": "t1", "user": "nftauth", "host": "1.2.3.4", "identity_file": "/k", "known_hosts_file": "/known-hosts"}
+	    ]
+	  }`
+	c, err := LoadServerConfig(writeTempConfig(t, serverJSON(push)))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got := c.Push.ReconcileInterval(); got != 0 {
+		t.Fatalf("explicit 0 must disable reconcile, got %s", got)
+	}
+}
+
+func TestLoadServerConfigReconcileIntervalNegativeRejected(t *testing.T) {
+	push := `"push": {
+	    "enabled": true,
+	    "reconcile_interval_seconds": -1,
+	    "targets": [
+	      {"name": "t1", "user": "nftauth", "host": "1.2.3.4", "identity_file": "/k", "known_hosts_file": "/known-hosts"}
+	    ]
+	  }`
+	_, err := LoadServerConfig(writeTempConfig(t, serverJSON(push)))
+	if err == nil || !strings.Contains(err.Error(), "reconcile_interval_seconds") {
+		t.Fatalf("expected negative-interval error, got %v", err)
 	}
 }
 

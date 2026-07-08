@@ -136,3 +136,20 @@ func (s *server) purgeAndSync(now time.Time) []string {
 	}
 	return removed
 }
+
+// reconcileSync purges expired entries and then pushes the current allowlist
+// unconditionally, so a receiver that missed an earlier push (network blip,
+// receiver downtime) converges back to the server state within one interval.
+// It runs on its own background ticker, off the auth request path.
+func (s *server) reconcileSync(now time.Time) {
+	for _, cidr := range s.store.Purge(now) {
+		s.audit.Log(audit.ActionEntryExpire, audit.ResultOK, map[string]interface{}{"cidr": cidr})
+	}
+	if !s.cfg.Push.Enabled {
+		return
+	}
+	s.audit.Log(audit.ActionPushReconcile, audit.ResultOK, map[string]interface{}{
+		"entries": s.store.Count(),
+	})
+	s.doPush(now)
+}

@@ -26,6 +26,7 @@ const (
 	ActionPushStart       = "push.start"
 	ActionPushSuccess     = "push.success"
 	ActionPushFail        = "push.fail"
+	ActionPushReconcile   = "push.reconcile"
 	ActionSignatureOK     = "signature.ok"
 	ActionSignatureFail   = "signature.fail"
 	ActionOutputWriteOK   = "output.write.success"

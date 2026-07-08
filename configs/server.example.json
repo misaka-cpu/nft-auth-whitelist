@@ -27,6 +27,7 @@
   "push": {
     "enabled": false,
     "timeout_seconds": 10,
+    "reconcile_interval_seconds": 1800,
     "targets": [
       {
         "name": "receiver-1",

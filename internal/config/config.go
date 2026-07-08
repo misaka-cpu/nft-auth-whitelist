@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/misaka-cpu/nft-auth-whitelist/internal/clientip"
 )
@@ -46,6 +47,20 @@ type PushConfig struct {
 	Enabled        bool         `json:"enabled"`
 	TimeoutSeconds int          `json:"timeout_seconds"`
 	Targets        []PushTarget `json:"targets"`
+	// ReconcileIntervalSeconds is how often the server pushes the current
+	// allowlist to all targets regardless of auth/purge activity, so a receiver
+	// that missed a push (network blip, receiver downtime) converges back.
+	// Absent defaults to 1800; an explicit 0 disables reconcile pushes.
+	ReconcileIntervalSeconds *int `json:"reconcile_interval_seconds"`
+}
+
+// ReconcileInterval returns the effective reconcile push interval: 30 minutes
+// when unset, 0 (disabled) when explicitly set to 0.
+func (p PushConfig) ReconcileInterval() time.Duration {
+	if p.ReconcileIntervalSeconds == nil {
+		return 30 * time.Minute
+	}
+	return time.Duration(*p.ReconcileIntervalSeconds) * time.Second
 }
 
 // ServerConfig is the auth-server configuration.
@@ -318,6 +333,9 @@ func (p PushConfig) validate() error {
 	}
 	if len(p.Targets) == 0 {
 		return fmt.Errorf("push.enabled is true but push.targets is empty")
+	}
+	if p.ReconcileIntervalSeconds != nil && *p.ReconcileIntervalSeconds < 0 {
+		return fmt.Errorf("push.reconcile_interval_seconds must not be negative")
 	}
 	for i, t := range p.Targets {
 		missing := []string{}

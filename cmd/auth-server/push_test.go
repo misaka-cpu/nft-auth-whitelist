@@ -198,6 +198,53 @@ func TestPurgeSyncPushesAfterExpiry(t *testing.T) {
 	}
 }
 
+func TestReconcileSyncPushesWithoutExpiry(t *testing.T) {
+	fake := writeFakeSSH(t, `cat >/dev/null; echo "ok entries=1 output=/var/lib/nft-auth-whitelist/allow.txt"; exit 0`)
+	srv, audit := pushServer(t, fake)
+
+	// A live, unexpired entry: purge removes nothing, reconcile must still push.
+	now := time.Now()
+	if _, err := srv.store.Record("1.2.3.4/32", "1.2.3.4", "web_auth", now, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	srv.reconcileSync(now.Add(time.Minute))
+
+	a := audit.String()
+	if !strings.Contains(a, "push.reconcile") {
+		t.Fatalf("audit must record push.reconcile, got %s", a)
+	}
+	if !strings.Contains(a, "push.start") || !strings.Contains(a, "push.success") {
+		t.Fatalf("reconcile must push even when nothing expired, got %s", a)
+	}
+}
+
+func TestReconcileSyncAlsoPurgesExpired(t *testing.T) {
+	fake := writeFakeSSH(t, `cat >/dev/null; echo ok; exit 0`)
+	srv, audit := pushServer(t, fake)
+
+	base := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
+	if _, err := srv.store.Record("9.9.9.9/32", "9.9.9.9", "web_auth", base, time.Second); err != nil {
+		t.Fatal(err)
+	}
+	srv.reconcileSync(base.Add(time.Hour))
+
+	a := audit.String()
+	if !strings.Contains(a, "entry.expire") {
+		t.Fatalf("reconcile must purge expired entries first, got %s", a)
+	}
+	if !strings.Contains(a, "push.start") {
+		t.Fatalf("reconcile must push after purging, got %s", a)
+	}
+}
+
+func TestReconcileSyncNoPushWhenPushDisabled(t *testing.T) {
+	srv, audit := testServer(t, nil) // push disabled (default)
+	srv.reconcileSync(time.Now())
+	if strings.Contains(audit.String(), "push.") {
+		t.Fatalf("reconcile must not push when push is disabled, got %s", audit.String())
+	}
+}
+
 func TestPurgeSyncNoPushWhenNothingExpired(t *testing.T) {
 	fake := writeFakeSSH(t, `cat >/dev/null; echo ok; exit 0`)
 	srv, audit := pushServer(t, fake)

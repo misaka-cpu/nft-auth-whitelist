@@ -30,6 +30,8 @@ curl -fsSL https://raw.githubusercontent.com/misaka-cpu/nft-auth-whitelist/main/
 
 白名单送到 po0 有两条路：puller 主动拉，或 auth-server 经 SSH push 给 receive。两者默认都只导出 `allow.txt`，**默认不执行** nft。
 
+push 模式下 auth-server 每隔 `push.reconcile_interval_seconds`（默认 1800）会无条件推一次当前白名单做对账：某次 push 因网络抖动或接收端宕机丢失后，最迟一个周期内自动收敛；设 `0` 关闭。
+
 ## 工作方式
 
 ```

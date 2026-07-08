@@ -68,6 +68,23 @@ func main() {
 		}
 	}()
 
+	// Periodic reconcile push: converge receivers that missed a push (network
+	// blip, receiver downtime) back to the current allowlist.
+	if interval := cfg.Push.ReconcileInterval(); cfg.Push.Enabled && interval > 0 {
+		go func() {
+			t := time.NewTicker(interval)
+			defer t.Stop()
+			for {
+				select {
+				case <-stopPurge:
+					return
+				case <-t.C:
+					srv.reconcileSync(time.Now())
+				}
+			}
+		}()
+	}
+
 	httpSrv := &http.Server{
 		Addr:              cfg.Listen,
 		Handler:           srv.Handler(),
