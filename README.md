@@ -109,6 +109,8 @@ Cloudflare Access 前门 + trusted proxy 的**具体配置**（DNS、Access poli
 
 两条路都校验 HMAC 签名，失败一律拒绝并保留旧 `allow.txt`。自动 push、生产 po0 接入等详细步骤见 [docs/](./docs/)（`deploy-auth-server.md`、`deploy-receive.md`、`deploy-po0-shadow.md`、`public-deployment.md`）。
 
+家宽有 DDNS 域名时，还可以在 po0 侧用 `scripts/ddns-whitelist-sync.sh --out ddns.txt home.example.com` 定时把域名解析结果导出成第二个白名单文件（与 `allow.txt` 并存，主项目 `file_sources` 支持多个文件）：家宽 IP 轮换后无需任何人访问认证页。解析失败保留旧文件，绝不缩小白名单。
+
 ## 可选 nft guard（默认关闭）
 
 puller / receive 默认 `export` 模式，**默认不执行**任何 `nft` 命令。要让本项目自己下发 nft 规则，需**同时**满足 `mode=nft`（或 `nft.enabled=true`）和命令行 `--apply`。它只管理自己的 `table inet nft_auth_whitelist`，绝不 `flush ruleset`，`policy accept` 只对配置里的受保护端口做「白名单放行、否则 drop」，不碰主项目和其它表。不确定就先 `--dry-run` 看生成的脚本。

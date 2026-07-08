@@ -41,6 +41,9 @@ bash scripts/test-ci.sh
 echo "==> scripts/test-local-shadow.sh"
 bash scripts/test-local-shadow.sh
 
+echo "==> scripts/test-ddns-sync.sh"
+bash scripts/test-ddns-sync.sh
+
 echo "==> scripts/secret-scan.sh"
 bash scripts/secret-scan.sh
 

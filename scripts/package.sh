@@ -37,6 +37,8 @@ for arch in amd64 arm64; do
     scripts/preflight-receive.sh \
     scripts/preflight-push-target.sh \
     scripts/pin-egress-to-primary.sh \
+    scripts/ddns-whitelist-sync.sh \
+    scripts/test-ddns-sync.sh \
     scripts/check.sh \
     scripts/install-release.sh \
     scripts/test-build.sh \
